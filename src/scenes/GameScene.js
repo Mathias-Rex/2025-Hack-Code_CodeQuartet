@@ -13,7 +13,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.playAreaWidth = width;
 
-    this.paddle = this.physics.add.image(width / 2, height - 40, 'paddle')
+    this.paddle = this.physics.add.image(width / 2, height - 70, 'paddle')
       .setImmovable(true)
       .setCollideWorldBounds(true);
     const desiredWidth = 170;
@@ -21,6 +21,7 @@ export default class GameScene extends Phaser.Scene {
     this.paddle.setScale(scale);
     this.paddle.body.setSize(this.paddle.displayWidth, this.paddle.displayHeight, true);
     this.paddleHalfWidth = this.paddle.displayWidth / 2;
+    this.edgePadding = 12;
 
     this.ball = this.physics.add.image(width / 2, height / 2, 'ball')
       .setVelocity(200, 160)
@@ -30,6 +31,8 @@ export default class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keyR = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.keyEsc = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+    this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
 
     this.physics.add.collider(this.ball, this.paddle);
 
@@ -44,12 +47,6 @@ export default class GameScene extends Phaser.Scene {
     this.savedVelocity = new Phaser.Math.Vector2();
     this.createPauseMenu();
 
-    this.input.on('pointermove', (pointer) => {
-      if (this.isPaused) return;
-      const minX = this.paddleHalfWidth;
-      const maxX = this.playAreaWidth - this.paddleHalfWidth;
-      this.paddle.x = Phaser.Math.Clamp(pointer.x, minX, maxX);
-    });
   }
 
   createPauseMenu() {
@@ -229,14 +226,17 @@ export default class GameScene extends Phaser.Scene {
     if (this.isPaused) return;
 
     const speed = 400;
-    if (this.cursors.left.isDown) this.paddle.setVelocityX(-speed);
-    else if (this.cursors.right.isDown) this.paddle.setVelocityX(speed);
+    const moveLeft = this.cursors.left.isDown || this.keyA.isDown;
+    const moveRight = this.cursors.right.isDown || this.keyD.isDown;
+
+    if (moveLeft && !moveRight) this.paddle.setVelocityX(-speed);
+    else if (moveRight && !moveLeft) this.paddle.setVelocityX(speed);
     else this.paddle.setVelocityX(0);
 
     this.paddle.x = Phaser.Math.Clamp(
       this.paddle.x,
-      this.paddleHalfWidth,
-      this.playAreaWidth - this.paddleHalfWidth
+      this.paddleHalfWidth + this.edgePadding,
+      this.playAreaWidth - this.paddleHalfWidth - this.edgePadding
     );
 
     if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
