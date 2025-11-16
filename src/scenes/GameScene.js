@@ -5,10 +5,12 @@ export default class GameScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.physics.world.setBounds(0, 0, width, height);
 
-    this.add.image(0, 0, 'gameBg')
-      .setOrigin(0)
-      .setDisplaySize(width, height)
+    const bg = this.add.image(width / 2, height / 2, 'gameBg')
       .setDepth(-2);
+    const bgScale = Math.max(width / bg.width, height / bg.height);
+    bg.setScale(bgScale);
+
+    this.playAreaWidth = width;
 
     this.paddle = this.physics.add.image(width / 2, height - 40, 'paddle')
       .setImmovable(true)
@@ -17,6 +19,7 @@ export default class GameScene extends Phaser.Scene {
     const scale = desiredWidth / this.paddle.width;
     this.paddle.setScale(scale);
     this.paddle.body.setSize(this.paddle.displayWidth, this.paddle.displayHeight, true);
+    this.paddleHalfWidth = this.paddle.displayWidth / 2;
 
     this.ball = this.physics.add.image(width / 2, height / 2, 'ball')
       .setVelocity(200, 160)
@@ -40,8 +43,8 @@ export default class GameScene extends Phaser.Scene {
     // Egérrel is mozgatható a paddle
     this.input.on('pointermove', (p) => {
       if (this.isPaused) return;
-      const minX = this.paddle.displayWidth / 2;
-      const maxX = width - this.paddle.displayWidth / 2;
+      const minX = this.paddleHalfWidth;
+      const maxX = this.playAreaWidth - this.paddleHalfWidth;
       this.paddle.x = Phaser.Math.Clamp(p.x, minX, maxX);
     });
   }
@@ -127,6 +130,12 @@ export default class GameScene extends Phaser.Scene {
     if (this.cursors.left.isDown) this.paddle.setVelocityX(-speed);
     else if (this.cursors.right.isDown) this.paddle.setVelocityX(speed);
     else this.paddle.setVelocityX(0);
+
+    this.paddle.x = Phaser.Math.Clamp(
+      this.paddle.x,
+      this.paddleHalfWidth,
+      this.playAreaWidth - this.paddleHalfWidth
+    );
 
     if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
       this.scene.restart();
