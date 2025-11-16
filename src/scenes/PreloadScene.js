@@ -2,27 +2,32 @@ export default class PreloadScene extends Phaser.Scene {
   constructor() { super('Preload'); }
 
   preload() {
-    // Egyszerű textúrák generálása (nincs külső asset)
+    this.load.audio('menuMusic', 'assets/music/menu.mp3');
+    this.load.audio('click', 'assets/sounds/click1.mp3');
+    this.load.audio('introSound', 'assets/narrations/intro.mp3');
+    this.load.image('paddle', 'assets/sprites/ship1.png');
+    this.load.image('menuBg', 'assets/images/background.jpg');
+    this.load.image('introBg', 'assets/images/intro_background.jpg');
+    this.load.image('gameBg', 'assets/images/game_background.jpg');
+
+    
+
+    // Egyszeru texturak generalasa (nincs kulso asset)
     const g = this.make.graphics({ x: 0, y: 0, add: false });
 
     g.fillStyle(0xffcc00, 1);
     g.fillCircle(32, 32, 32);
     g.generateTexture('ball', 64, 64);
 
-    g.clear();
-    g.fillStyle(0x00e5ff, 1);
-    g.fillRoundedRect(0, 0, 120, 20, 10);
-    g.generateTexture('paddle', 120, 20);
-
     g.destroy();
 
-    this.add.text(400, 300, 'Betöltés...', {
+    this.add.text(400, 300, 'Betoltes...', {
       fontFamily: 'Arial', fontSize: 24, color: '#ffffff'
     }).setOrigin(0.5);
   }
 
   create() {
-    this.scene.start('Game');
+    if (window.__INTRO_SHOWN) this.scene.start('Menu');
+    else this.scene.start('Intro');
   }
 }
-

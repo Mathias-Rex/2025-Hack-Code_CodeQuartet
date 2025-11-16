@@ -1,5 +1,7 @@
 import BootScene from './scenes/BootScene.js';
 import PreloadScene from './scenes/PreloadScene.js';
+import IntroScene from './scenes/IntroScene.js';
+import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
 
 const config = {
@@ -13,7 +15,7 @@ const config = {
     arcade: { gravity: { y: 0 }, debug: false }
   },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [BootScene, PreloadScene, GameScene]
+  scene: [BootScene, PreloadScene, IntroScene, MenuScene, GameScene]
 };
 
 window.addEventListener('load', () => {
