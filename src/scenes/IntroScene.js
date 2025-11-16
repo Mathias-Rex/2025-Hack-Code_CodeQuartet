@@ -35,6 +35,7 @@ export default class IntroScene extends Phaser.Scene {
 
     this.finished = false;
     this.playIntroSound();
+    this.enableSkipWithSpace();
   }
 
   playIntroSound() {
@@ -58,6 +59,14 @@ export default class IntroScene extends Phaser.Scene {
     } else {
       this.time.delayedCall(1000, () => this.finishIntro());
     }
+  }
+
+  enableSkipWithSpace() {
+    this.input.keyboard.once('keydown-SPACE', () => {
+      if (this.finished) return;
+      this.introSound?.stop();
+      this.finishIntro();
+    });
   }
 
   finishIntro() {
