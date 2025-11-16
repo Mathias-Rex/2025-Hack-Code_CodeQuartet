@@ -113,18 +113,18 @@ export default class MenuScene extends Phaser.Scene {
     const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
       .setOrigin(0.5)
       .setInteractive();
-    const panel = this.add.rectangle(0, 0, 420, 320, 0x0a1a32, 0.96)
+    const panel = this.add.rectangle(0, 0, 360, 260, 0x0a1a32, 0.96)
       .setOrigin(0.5)
       .setStrokeStyle(4, 0x5de1ff);
-    const title = this.add.text(0, -120, 'Beállítások', {
+    const title = this.add.text(0, -90, 'Beállítások', {
       fontFamily: 'Arial',
       fontSize: 34,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const musicToggle = this.createSettingsButton(-60, () => this.toggleMusic());
-    const sfxToggle = this.createSettingsButton(20, () => this.toggleSfx(), 'Hangeffektek: ');
-    const back = this.createSettingsButton(100, () => this.hideSettingsMenu(), 'Vissza');
+    const musicToggle = this.createSettingsButton(-40, () => this.toggleMusic());
+    const sfxToggle = this.createSettingsButton(40, () => this.toggleSfx(), 'Hangeffektek: ');
+    const back = this.createSettingsButton(120, () => this.hideSettingsMenu(), 'Vissza');
 
     this.settingsContainer.add([overlay, panel, title, musicToggle.button, musicToggle.text, sfxToggle.button, sfxToggle.text, back.button, back.text]);
     this.musicToggleText = musicToggle.text;

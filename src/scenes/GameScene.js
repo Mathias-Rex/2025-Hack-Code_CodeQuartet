@@ -3,7 +3,7 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
-    this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true });
+    this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true });
 
     this.physics.world.setBounds(0, 0, width, height);
 
@@ -27,6 +27,8 @@ export default class GameScene extends Phaser.Scene {
       .setVelocity(200, 160)
       .setBounce(1, 1)
       .setCollideWorldBounds(true);
+    this.ball.setDisplaySize(60, 60);
+    this.ball.body.setCircle(30, this.ball.width / 2 - 30, this.ball.height / 2 - 30);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keyR = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
@@ -113,21 +115,26 @@ export default class GameScene extends Phaser.Scene {
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const toggle = this.createSettingsButton(-10, () => this.togglePauseMusic());
-    const back = this.createSettingsButton(70, () => this.hidePauseSettings(), 'Vissza');
+    const musicToggle = this.createSettingsButton(-40, () => this.togglePauseMusic());
+    const sfxToggle = this.createSettingsButton(40, () => this.togglePauseSfx(), 'Hangeffektek:');
+    const back = this.createSettingsButton(120, () => this.hidePauseSettings(), 'Vissza');
 
     this.pauseSettingsContainer.add([
       overlay,
       panel,
       title,
-      toggle.button,
-      toggle.text,
+      musicToggle.button,
+      musicToggle.text,
+      sfxToggle.button,
+      sfxToggle.text,
       back.button,
       back.text
     ]);
 
-    this.pauseMusicLabel = toggle.text;
+    this.pauseMusicLabel = musicToggle.text;
+    this.pauseSfxLabel = sfxToggle.text;
     this.updatePauseMusicLabel();
+    this.updatePauseSfxLabel();
   }
 
   createSettingsButton(y, callback, label) {
@@ -152,7 +159,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   playClickSound() {
-    this.sound.play('click', { volume: 0.7 });
+    if (this.gameSettings.sfxEnabled) {
+      this.sound.play('click', { volume: 0.7 });
+    }
   }
 
   pauseGame() {
@@ -211,6 +220,16 @@ export default class GameScene extends Phaser.Scene {
   updatePauseMusicLabel() {
     if (!this.pauseMusicLabel) return;
     this.pauseMusicLabel.setText(`Zene: ${this.gameSettings.musicEnabled ? 'BE' : 'KI'}`);
+  }
+
+  togglePauseSfx() {
+    this.gameSettings.sfxEnabled = !this.gameSettings.sfxEnabled;
+    this.updatePauseSfxLabel();
+  }
+
+  updatePauseSfxLabel() {
+    if (!this.pauseSfxLabel) return;
+    this.pauseSfxLabel.setText(`Hangeffektek: ${this.gameSettings.sfxEnabled ? 'BE' : 'KI'}`);
   }
 
   update() {

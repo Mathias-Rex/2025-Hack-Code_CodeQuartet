@@ -11,7 +11,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image('gameBg', 'assets/images/game_background.jpg');
 
     // Use external image instead of generating 'ball' texture
-    this.load.image('ball', 'assets/images/Jateklabda.png');
+    this.load.image('ball', 'assets/sprites/Jateklabda.png');
 
     this.add.text(400, 300, 'Betoltes...', {
       fontFamily: 'Arial', fontSize: 24, color: '#ffffff'
