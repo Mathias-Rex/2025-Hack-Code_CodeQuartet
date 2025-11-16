@@ -10,16 +10,8 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image('introBg', 'assets/images/intro_background.jpg');
     this.load.image('gameBg', 'assets/images/game_background.jpg');
 
-    
-
-    // Egyszeru texturak generalasa (nincs kulso asset)
-    const g = this.make.graphics({ x: 0, y: 0, add: false });
-
-    g.fillStyle(0xffcc00, 1);
-    g.fillCircle(32, 32, 32);
-    g.generateTexture('ball', 64, 64);
-
-    g.destroy();
+    // Use external image instead of generating 'ball' texture
+    this.load.image('ball', 'assets/images/Jateklabda.png');
 
     this.add.text(400, 300, 'Betoltes...', {
       fontFamily: 'Arial', fontSize: 24, color: '#ffffff'
