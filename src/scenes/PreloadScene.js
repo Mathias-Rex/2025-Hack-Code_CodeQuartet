@@ -6,7 +6,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio('click', 'assets/sounds/click1.mp3');
     this.load.audio('introSound', 'assets/narrations/intro.mp3');
     this.load.image('paddle', 'assets/sprites/ship1.png');
-    this.load.image('menuBg', 'assets/images/background.jpg');
+    this.load.image('menuBg', 'assets/images/hangar.png');
     this.load.image('introBg', 'assets/images/intro_background.jpg');
     this.load.image('gameBg', 'assets/images/game_background.jpg');
 

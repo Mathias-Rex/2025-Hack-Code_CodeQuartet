@@ -96,7 +96,7 @@ export default class GameScene extends Phaser.Scene {
     return container;
   }
 
-  createVolumeSlider(parentContainer, y, initialValue, onChange) {
+  createVolumeSlider(y, initialValue, onChange) {
     const sliderWidth = 260;
     const slider = this.add.container(0, y);
     const label = this.add.text(0, -28, '', {
@@ -124,9 +124,10 @@ export default class GameScene extends Phaser.Scene {
       if (emitChange) onChange(clamped);
     };
 
+    const tmpPoint = new Phaser.Math.Vector2();
     const handlePointer = (pointer) => {
-      const localX = pointer.x - parentContainer.x - slider.x;
-      const ratio = Phaser.Math.Clamp((localX + sliderWidth / 2) / sliderWidth, 0, 1);
+      slider.getWorldTransformMatrix().applyInverse(pointer.worldX, pointer.worldY, tmpPoint);
+      const ratio = Phaser.Math.Clamp((tmpPoint.x + sliderWidth / 2) / sliderWidth, 0, 1);
       setValue(ratio);
     };
 
@@ -139,7 +140,6 @@ export default class GameScene extends Phaser.Scene {
 
     setValue(initialValue, false);
     slider.setValue = (value, emitChange = true) => setValue(value, emitChange);
-    slider.parentContainerRef = parentContainer;
     return slider;
   }
 
@@ -150,19 +150,18 @@ export default class GameScene extends Phaser.Scene {
       .setVisible(false);
 
     const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
-      .setOrigin(0.5)
-      .setInteractive();
-    const panel = this.add.rectangle(0, 0, 360, 240, 0x0a1f3a, 0.96)
+      .setOrigin(0.5);
+    const panel = this.add.rectangle(0, 0, 400, 320, 0x0a1f3a, 0.96)
       .setStrokeStyle(4, 0x5de1ff);
-    const title = this.add.text(0, -80, 'Be\u00E1ll\u00EDt\u00E1sok', {
+    const title = this.add.text(0, -110, 'Be\u00E1ll\u00EDt\u00E1sok', {
       fontFamily: 'Arial',
       fontSize: 32,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const musicSlider = this.createVolumeSlider(this.pauseSettingsContainer, -60, this.gameSettings.musicVolume ?? 0.6, (value) => this.handlePauseMusicVolume(value));
-    const sfxToggle = this.createSettingsButton(40, () => this.togglePauseSfx(), 'Hangeffektek:');
-    const back = this.createSettingsButton(120, () => this.hidePauseSettings(), 'Vissza');
+    const musicSlider = this.createVolumeSlider(-30, this.gameSettings.musicVolume ?? 0.6, (value) => this.handlePauseMusicVolume(value));
+    const sfxToggle = this.createSettingsButton(30, () => this.togglePauseSfx(), 'Hangeffektek:');
+    const back = this.createSettingsButton(100, () => this.hidePauseSettings(), 'Vissza');
 
     this.pauseSettingsContainer.add([
       overlay,
@@ -235,12 +234,14 @@ export default class GameScene extends Phaser.Scene {
   showPauseSettings() {
     this.pauseSettingsVisible = true;
     this.pauseSettingsContainer.setVisible(true);
+    this.pauseContainer.setVisible(false);
     this.enablePauseButtons(false);
   }
 
   hidePauseSettings() {
     this.pauseSettingsVisible = false;
     this.pauseSettingsContainer.setVisible(false);
+    this.pauseContainer.setVisible(true);
     this.enablePauseButtons(true);
   }
 

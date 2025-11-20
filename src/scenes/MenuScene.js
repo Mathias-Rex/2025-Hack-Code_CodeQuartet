@@ -11,16 +11,16 @@ export default class MenuScene extends Phaser.Scene {
       .setDisplaySize(width, height)
       .setDepth(-1);
 
-    this.title = this.add.text(width / 2, height / 2 - 120, 'Pong Deluxe', {
+    this.title = this.add.text(width / 2, height / 2 - 150, 'OUTBACK', {
       fontFamily: 'Arial',
-      fontSize: 56,
+      fontSize: 120,
       fontStyle: 'bold',
       color: '#ffffff'
     }).setOrigin(0.5).setShadow(0, 0, '#00c2ff', 16, true, true);
-
-    this.add.text(width / 2, height / 2 - 60, 'Jobb/Bal nyilak vagy eg\u00E9r', {
+    this.add.text(width / 2, this.title.y + 78, 'P L A C E', {
       fontFamily: 'Arial',
-      fontSize: 18,
+      fontSize: 56,
+      letterSpacing: 30,
       color: '#c0d4ff'
     }).setOrigin(0.5);
 
@@ -80,9 +80,9 @@ export default class MenuScene extends Phaser.Scene {
     this.createSettingsMenu();
   }
 
-  createButton(x, y, label, onClick, width = 220, height = 70, fontSize = 32) {
-    const rect = this.add.rectangle(x, y, width, height, 0x00c2ff, 0.85)
-      .setStrokeStyle(3, 0xffffff, 0.9)
+  createButton(x, y, label, onClick, width = 360, height = 110, fontSize = 52) {
+    const rect = this.add.rectangle(x, y, width, height, 0x4fa9d7, 0.78)
+      .setStrokeStyle(4, 0xc6edff, 0.9)
       .setInteractive({ useHandCursor: true });
     const text = this.add.text(x, y, label, {
       fontFamily: 'Arial',
@@ -91,13 +91,13 @@ export default class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     rect.on('pointerover', () => {
-      rect.setFillStyle(0x40e9ff, 0.95);
-      text.setColor('#001829');
+      rect.setFillStyle(0x72c9f1, 0.94);
+      text.setColor('#00233c');
     });
 
     rect.on('pointerout', () => {
-      rect.setFillStyle(0x00c2ff, 0.85);
-      text.setColor('#03253f');
+      rect.setFillStyle(0x4fa9d7, 0.78);
+      text.setColor('#032f4c');
     });
 
     rect.on('pointerup', () => {
@@ -120,10 +120,10 @@ export default class MenuScene extends Phaser.Scene {
     const track = this.add.rectangle(0, 0, sliderWidth, 8, 0x0a253d, 0.9)
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    const fill = this.add.rectangle(-sliderWidth / 2, 0, sliderWidth * initialValue, 8, 0x00c2ff, 1)
+    const fill = this.add.rectangle(-sliderWidth / 2, 0, sliderWidth * initialValue, 8, 0x72c9f1, 1)
       .setOrigin(0, 0.5);
-    const knob = this.add.circle(-sliderWidth / 2 + sliderWidth * initialValue, 0, 10, 0xffffff)
-      .setStrokeStyle(2, 0x00c2ff)
+    const knob = this.add.circle(-sliderWidth / 2 + sliderWidth * initialValue, 0, 10, 0xe8f6ff)
+      .setStrokeStyle(2, 0x4fa9d7)
       .setInteractive({ useHandCursor: true });
 
     slider.add([label, track, fill, knob]);
@@ -140,9 +140,10 @@ export default class MenuScene extends Phaser.Scene {
       if (emitChange) onChange(clamped);
     };
 
+    const tmpPoint = new Phaser.Math.Vector2();
     const handlePointer = (pointer) => {
-      const localX = pointer.x - this.settingsContainer.x - slider.x;
-      const ratio = Phaser.Math.Clamp((localX + sliderWidth / 2) / sliderWidth, 0, 1);
+      slider.getWorldTransformMatrix().applyInverse(pointer.worldX, pointer.worldY, tmpPoint);
+      const ratio = Phaser.Math.Clamp((tmpPoint.x + sliderWidth / 2) / sliderWidth, 0, 1);
       setValue(ratio);
     };
 
@@ -177,7 +178,7 @@ export default class MenuScene extends Phaser.Scene {
       color: '#c0d4ff'
     }).setOrigin(0.5).setVisible(false);
 
-    this.tycoonInfoText = this.add.text(width / 2, height / 2 + 160, 'Tycoon mode coming soon', {
+    this.tycoonInfoText = this.add.text(width / 2, height / 2 + 160, 'Tycoon mode coming soon...', {
       fontFamily: 'Arial',
       fontSize: 20,
       color: '#ffd166'
@@ -246,8 +247,7 @@ export default class MenuScene extends Phaser.Scene {
       .setVisible(false);
 
     const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
-      .setOrigin(0.5)
-      .setInteractive();
+      .setOrigin(0.5);
     const panel = this.add.rectangle(0, 0, 420, 320, 0x0a1a32, 0.96)
       .setOrigin(0.5)
       .setStrokeStyle(4, 0x5de1ff);
