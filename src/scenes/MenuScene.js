@@ -43,11 +43,11 @@ export default class MenuScene extends Phaser.Scene {
       this.scene.start('Game');
     };
 
-    const startBtn = this.createButton(width / 2, height / 2 + 40, 'Start', () => this.showStartOptions());
+    const startBtn = this.createButton(width / 2, height / 2 + 70, 'Start', () => this.showStartOptions());
     this.startButton = startBtn;
     this.startButtonRect = startBtn.rect;
 
-    const settingsBtn = this.createButton(width / 2, height / 2 + 130, 'Be\u00E1ll\u00EDt\u00E1sok', () => this.showSettingsMenu());
+    const settingsBtn = this.createButton(width / 2, height / 2 + 220, 'Be\u00E1ll\u00EDt\u00E1sok', () => this.showSettingsMenu());
     this.settingsButton = settingsBtn;
     this.settingsButtonRect = settingsBtn.rect;
     this.createStartOptionsMenu(startGame);
