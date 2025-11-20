@@ -18,13 +18,16 @@ export default class MenuScene extends Phaser.Scene {
       color: '#ffffff'
     }).setOrigin(0.5).setShadow(0, 0, '#00c2ff', 16, true, true);
 
-    this.add.text(width / 2, height / 2 - 60, 'Jobb/ Bal nyilak vagy egér', {
+    this.add.text(width / 2, height / 2 - 60, 'Jobb/Bal nyilak vagy eg\u00E9r', {
       fontFamily: 'Arial',
       fontSize: 18,
       color: '#c0d4ff'
     }).setOrigin(0.5);
 
-    this.musicEnabled = this.gameSettings.musicEnabled;
+    this.musicVolume = this.gameSettings.musicVolume ?? 0.6;
+    this.musicEnabled = this.gameSettings.musicEnabled ?? this.musicVolume > 0.001;
+    this.gameSettings.musicVolume = this.musicVolume;
+    this.gameSettings.musicEnabled = this.musicEnabled;
     this.sfxEnabled = this.gameSettings.sfxEnabled ?? true;
 
     let gameStarted = false;
@@ -40,17 +43,23 @@ export default class MenuScene extends Phaser.Scene {
       this.scene.start('Game');
     };
 
-    const startBtn = this.createButton(width / 2, height / 2 + 40, 'Start', () => startGame());
+    const startBtn = this.createButton(width / 2, height / 2 + 40, 'Start', () => this.showStartOptions());
+    this.startButton = startBtn;
     this.startButtonRect = startBtn.rect;
 
-    const settingsBtn = this.createButton(width / 2, height / 2 + 130, 'Beállítások', () => this.showSettingsMenu());
+    const settingsBtn = this.createButton(width / 2, height / 2 + 130, 'Be\u00E1ll\u00EDt\u00E1sok', () => this.showSettingsMenu());
+    this.settingsButton = settingsBtn;
     this.settingsButtonRect = settingsBtn.rect;
+    this.createStartOptionsMenu(startGame);
 
     this.input.keyboard.once('keydown-ENTER', () => {
       startGame();
     });
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this.startOptionsVisible && !this.isSettingsOpen) this.hideStartOptions();
+    });
 
-    this.music = this.sound.add('menuMusic', { loop: true, volume: 0.6 });
+    this.music = this.sound.add('menuMusic', { loop: true, volume: this.musicVolume });
     this.beginMusic = () => {
       if (!this.music || this.music.isPlaying || !this.musicEnabled) return;
       this.music.play();
@@ -71,13 +80,13 @@ export default class MenuScene extends Phaser.Scene {
     this.createSettingsMenu();
   }
 
-  createButton(x, y, label, onClick, width = 220, height = 70) {
+  createButton(x, y, label, onClick, width = 220, height = 70, fontSize = 32) {
     const rect = this.add.rectangle(x, y, width, height, 0x00c2ff, 0.85)
       .setStrokeStyle(3, 0xffffff, 0.9)
       .setInteractive({ useHandCursor: true });
     const text = this.add.text(x, y, label, {
       fontFamily: 'Arial',
-      fontSize: 32,
+      fontSize,
       color: '#03253f'
     }).setOrigin(0.5);
 
@@ -99,6 +108,132 @@ export default class MenuScene extends Phaser.Scene {
     return { rect, text };
   }
 
+  createVolumeSlider(y, initialValue, onChange) {
+    const sliderWidth = 260;
+    const slider = this.add.container(0, y);
+    const label = this.add.text(0, -28, '', {
+      fontFamily: 'Arial',
+      fontSize: 22,
+      color: '#c0d4ff'
+    }).setOrigin(0.5);
+
+    const track = this.add.rectangle(0, 0, sliderWidth, 8, 0x0a253d, 0.9)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    const fill = this.add.rectangle(-sliderWidth / 2, 0, sliderWidth * initialValue, 8, 0x00c2ff, 1)
+      .setOrigin(0, 0.5);
+    const knob = this.add.circle(-sliderWidth / 2 + sliderWidth * initialValue, 0, 10, 0xffffff)
+      .setStrokeStyle(2, 0x00c2ff)
+      .setInteractive({ useHandCursor: true });
+
+    slider.add([label, track, fill, knob]);
+
+    const updateLabel = (value) => {
+      label.setText(`Zene hanger\u0151: ${Math.round(value * 100)}%`);
+    };
+
+    const setValue = (value, emitChange = true) => {
+      const clamped = Phaser.Math.Clamp(value, 0, 1);
+      fill.width = sliderWidth * clamped;
+      knob.x = -sliderWidth / 2 + sliderWidth * clamped;
+      updateLabel(clamped);
+      if (emitChange) onChange(clamped);
+    };
+
+    const handlePointer = (pointer) => {
+      const localX = pointer.x - this.settingsContainer.x - slider.x;
+      const ratio = Phaser.Math.Clamp((localX + sliderWidth / 2) / sliderWidth, 0, 1);
+      setValue(ratio);
+    };
+
+    [track, knob].forEach((target) => {
+      target.on('pointerdown', (pointer) => handlePointer(pointer));
+      target.on('pointermove', (pointer) => {
+        if (pointer.isDown) handlePointer(pointer);
+      });
+    });
+
+    setValue(initialValue, false);
+    slider.setValue = (value, emitChange = true) => setValue(value, emitChange);
+    return slider;
+  }
+
+  createStartOptionsMenu(startGame) {
+    const { width, height } = this.scale;
+    this.startOptionsVisible = false;
+    this.tycoonInfoTimer = null;
+
+    const campaignBtn = this.createButton(width / 2, height / 2 + 10, 'START CAMPAIGN', () => {
+      this.hideStartOptions();
+      startGame();
+    }, 280, 60, 28);
+    const tycoonBtn = this.createButton(width / 2, height / 2 + 90, 'START TYCOON', () => this.handleTycoonSelection(), 280, 60, 28);
+    this.startOptionButtons = [campaignBtn, tycoonBtn];
+    this.toggleStartSubmenu(false);
+
+    this.startOptionHint = this.add.text(width / 2, height / 2 - 30, 'ESC - Vissza a men\u00FCbe', {
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: '#c0d4ff'
+    }).setOrigin(0.5).setVisible(false);
+
+    this.tycoonInfoText = this.add.text(width / 2, height / 2 + 160, 'Tycoon mode coming soon', {
+      fontFamily: 'Arial',
+      fontSize: 20,
+      color: '#ffd166'
+    }).setOrigin(0.5).setVisible(false);
+  }
+
+  toggleMainButtons(visible) {
+    const buttons = [this.startButton, this.settingsButton];
+    buttons.forEach((button) => {
+      if (!button) return;
+      button.rect.setVisible(visible);
+      button.text.setVisible(visible);
+      if (visible && !this.isSettingsOpen) button.rect.setInteractive({ useHandCursor: true });
+      else button.rect.disableInteractive();
+    });
+  }
+
+  toggleStartSubmenu(visible) {
+    if (!this.startOptionButtons) return;
+    this.startOptionButtons.forEach((button) => {
+      button.rect.setVisible(visible);
+      button.text.setVisible(visible);
+      if (visible) button.rect.setInteractive({ useHandCursor: true });
+      else button.rect.disableInteractive();
+    });
+    if (!visible) this.tycoonInfoText?.setVisible(false);
+    this.startOptionHint?.setVisible(visible);
+  }
+
+  showStartOptions() {
+    if (this.startOptionsVisible || this.isSettingsOpen) return;
+    this.startOptionsVisible = true;
+    this.toggleMainButtons(false);
+    this.toggleStartSubmenu(true);
+  }
+
+  hideStartOptions() {
+    if (!this.startOptionsVisible) return;
+    this.startOptionsVisible = false;
+    this.toggleStartSubmenu(false);
+    if (!this.isSettingsOpen) this.toggleMainButtons(true);
+  }
+
+  handleTycoonSelection() {
+    if (!this.tycoonInfoText) return;
+    this.tycoonInfoText.setVisible(true);
+    if (this.tycoonInfoTimer) {
+      this.tycoonInfoTimer.remove();
+      this.tycoonInfoTimer = null;
+    }
+    this.tycoonInfoTimer = this.time.delayedCall(1800, () => {
+      this.tycoonInfoText?.setVisible(false);
+      this.tycoonInfoTimer = null;
+    });
+  }
+
   playClickSound() {
     if (this.sfxEnabled) this.sound.play('click', { volume: 0.7 });
   }
@@ -116,20 +251,19 @@ export default class MenuScene extends Phaser.Scene {
     const panel = this.add.rectangle(0, 0, 420, 320, 0x0a1a32, 0.96)
       .setOrigin(0.5)
       .setStrokeStyle(4, 0x5de1ff);
-    const title = this.add.text(0, -120, 'Beállítások', {
+    const title = this.add.text(0, -120, 'Be\u00E1ll\u00EDt\u00E1sok', {
       fontFamily: 'Arial',
       fontSize: 34,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const musicToggle = this.createSettingsButton(-60, () => this.toggleMusic());
+    const musicSlider = this.createVolumeSlider(-70, this.musicVolume, (value) => this.setMusicVolume(value, false));
     const sfxToggle = this.createSettingsButton(20, () => this.toggleSfx(), 'Hangeffektek: ');
     const back = this.createSettingsButton(100, () => this.hideSettingsMenu(), 'Vissza');
 
-    this.settingsContainer.add([overlay, panel, title, musicToggle.button, musicToggle.text, sfxToggle.button, sfxToggle.text, back.button, back.text]);
-    this.musicToggleText = musicToggle.text;
+    this.settingsContainer.add([overlay, panel, title, musicSlider, sfxToggle.button, sfxToggle.text, back.button, back.text]);
+    this.musicVolumeSlider = musicSlider;
     this.sfxToggleText = sfxToggle.text;
-    this.updateMusicToggleLabel();
     this.updateSfxToggleLabel();
   }
 
@@ -155,6 +289,7 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   showSettingsMenu() {
+    this.hideStartOptions();
     this.isSettingsOpen = true;
     this.settingsContainer.setVisible(true);
     this.startButtonRect.disableInteractive();
@@ -164,21 +299,22 @@ export default class MenuScene extends Phaser.Scene {
   hideSettingsMenu() {
     this.isSettingsOpen = false;
     this.settingsContainer.setVisible(false);
-    this.startButtonRect.setInteractive({ useHandCursor: true });
-    this.settingsButtonRect.setInteractive({ useHandCursor: true });
+    if (!this.startOptionsVisible) this.toggleMainButtons(true);
   }
 
-  toggleMusic() {
-    this.musicEnabled = !this.musicEnabled;
+  setMusicVolume(value, updateSlider = true) {
+    const clamped = Phaser.Math.Clamp(value, 0, 1);
+    this.musicVolume = clamped;
+    this.gameSettings.musicVolume = clamped;
+    this.musicEnabled = clamped > 0.001;
     this.gameSettings.musicEnabled = this.musicEnabled;
-    if (this.musicEnabled) this.beginMusic();
-    else this.music?.stop();
-    this.updateMusicToggleLabel();
-  }
-
-  updateMusicToggleLabel() {
-    if (!this.musicToggleText) return;
-    this.musicToggleText.setText(`Zene: ${this.musicEnabled ? 'BE' : 'KI'}`);
+    if (this.musicEnabled) {
+      if (!this.music?.isPlaying) this.beginMusic();
+      this.music?.setVolume(clamped);
+    } else {
+      this.music?.stop();
+    }
+    if (updateSlider) this.musicVolumeSlider?.setValue(clamped, false);
   }
 
   toggleSfx() {
@@ -192,3 +328,5 @@ export default class MenuScene extends Phaser.Scene {
     this.sfxToggleText.setText(`Hangeffektek: ${this.sfxEnabled ? 'BE' : 'KI'}`);
   }
 }
+
+

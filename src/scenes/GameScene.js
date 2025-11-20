@@ -4,6 +4,11 @@ export default class GameScene extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
     this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true });
+    this.musicVolume = this.gameSettings.musicVolume ?? 0.6;
+    this.gameSettings.musicVolume = this.musicVolume;
+    if (this.gameSettings.musicEnabled === undefined) {
+      this.gameSettings.musicEnabled = this.musicVolume > 0.001;
+    }
 
     this.physics.world.setBounds(0, 0, width, height);
 
@@ -19,26 +24,20 @@ export default class GameScene extends Phaser.Scene {
     const desiredWidth = 170;
     const scale = desiredWidth / this.paddle.width;
     this.paddle.setScale(scale);
-    this.paddle.body.setSize(this.paddle.displayWidth, this.paddle.displayHeight, true);
+    this.paddle.body.setSize(this.paddle.displayWidth * 0.6, this.paddle.displayHeight * 0.8, true);
     this.paddleHalfWidth = this.paddle.displayWidth / 2;
+    this.paddleHalfHeight = this.paddle.displayHeight / 2;
     this.edgePadding = 12;
-
-    this.ball = this.physics.add.image(width / 2, height / 2, 'ball')
-      .setVelocity(200, 160)
-      .setBounce(1, 1)
-      .setCollideWorldBounds(true);
-    this.ball.setDisplaySize(60, 60);
-    this.ball.body.setCircle(30, this.ball.width / 2 - 30, this.ball.height / 2 - 30);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keyR = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.keyEsc = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+    this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+    this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
 
-    this.physics.add.collider(this.ball, this.paddle);
-
-    this.add.text(10, 10, 'Bal/Jobb: paddle | Reset: R | Esc: Menu', {
+    this.add.text(10, 10, 'Bal/Jobb vagy A/D: oldalra | Fel/Le vagy W/S: el\u0151re-h\u00E1tra | Reset: R | Esc: Men\u00FC', {
       fontFamily: 'Arial',
       fontSize: 14,
       color: '#a8b3cf'
@@ -46,7 +45,6 @@ export default class GameScene extends Phaser.Scene {
 
     this.isPaused = false;
     this.pauseSettingsVisible = false;
-    this.savedVelocity = new Phaser.Math.Vector2();
     this.createPauseMenu();
 
   }
@@ -61,15 +59,15 @@ export default class GameScene extends Phaser.Scene {
     const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.6).setOrigin(0.5);
     const panel = this.add.rectangle(0, 0, 400, 360, 0x0f1e3d, 0.95)
       .setStrokeStyle(4, 0x61dafb);
-    const title = this.add.text(0, -130, 'Szünet', {
+    const title = this.add.text(0, -130, 'Sz\u00FCnet', {
       fontFamily: 'Arial',
       fontSize: 34,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const resumeBtn = this.createMenuButton(0, -60, 'Folytatás', () => this.resumeGame());
-    const settingsBtn = this.createMenuButton(0, 20, 'Beállítások', () => this.showPauseSettings());
-    const quitBtn = this.createMenuButton(0, 100, 'Kilépés a menübe', () => this.quitToMenu());
+    const resumeBtn = this.createMenuButton(0, -60, 'Folytat\u00E1s', () => this.resumeGame());
+    const settingsBtn = this.createMenuButton(0, 20, 'Be\u00E1ll\u00EDt\u00E1sok', () => this.showPauseSettings());
+    const quitBtn = this.createMenuButton(0, 100, 'Kil\u00E9p\u00E9s a men\u00FCbe', () => this.quitToMenu());
     this.pauseButtons.push(resumeBtn, settingsBtn, quitBtn);
 
     this.pauseContainer.add([overlay, panel, title, resumeBtn, settingsBtn, quitBtn]);
@@ -98,6 +96,53 @@ export default class GameScene extends Phaser.Scene {
     return container;
   }
 
+  createVolumeSlider(parentContainer, y, initialValue, onChange) {
+    const sliderWidth = 260;
+    const slider = this.add.container(0, y);
+    const label = this.add.text(0, -28, '', {
+      fontFamily: 'Arial',
+      fontSize: 22,
+      color: '#c0d4ff'
+    }).setOrigin(0.5);
+
+    const track = this.add.rectangle(0, 0, sliderWidth, 8, 0x0a253d, 0.9)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    const fill = this.add.rectangle(-sliderWidth / 2, 0, sliderWidth * initialValue, 8, 0x00c2ff, 1)
+      .setOrigin(0, 0.5);
+    const knob = this.add.circle(-sliderWidth / 2 + sliderWidth * initialValue, 0, 10, 0xffffff)
+      .setStrokeStyle(2, 0x00c2ff)
+      .setInteractive({ useHandCursor: true });
+
+    slider.add([label, track, fill, knob]);
+
+    const setValue = (value, emitChange = true) => {
+      const clamped = Phaser.Math.Clamp(value, 0, 1);
+      fill.width = sliderWidth * clamped;
+      knob.x = -sliderWidth / 2 + sliderWidth * clamped;
+      label.setText(`Zene hanger\u0151: ${Math.round(clamped * 100)}%`);
+      if (emitChange) onChange(clamped);
+    };
+
+    const handlePointer = (pointer) => {
+      const localX = pointer.x - parentContainer.x - slider.x;
+      const ratio = Phaser.Math.Clamp((localX + sliderWidth / 2) / sliderWidth, 0, 1);
+      setValue(ratio);
+    };
+
+    [track, knob].forEach((target) => {
+      target.on('pointerdown', (pointer) => handlePointer(pointer));
+      target.on('pointermove', (pointer) => {
+        if (pointer.isDown) handlePointer(pointer);
+      });
+    });
+
+    setValue(initialValue, false);
+    slider.setValue = (value, emitChange = true) => setValue(value, emitChange);
+    slider.parentContainerRef = parentContainer;
+    return slider;
+  }
+
   createPauseSettingsMenu() {
     const { width, height } = this.scale;
     this.pauseSettingsContainer = this.add.container(width / 2, height / 2)
@@ -109,13 +154,13 @@ export default class GameScene extends Phaser.Scene {
       .setInteractive();
     const panel = this.add.rectangle(0, 0, 360, 240, 0x0a1f3a, 0.96)
       .setStrokeStyle(4, 0x5de1ff);
-    const title = this.add.text(0, -80, 'Beállítások', {
+    const title = this.add.text(0, -80, 'Be\u00E1ll\u00EDt\u00E1sok', {
       fontFamily: 'Arial',
       fontSize: 32,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const musicToggle = this.createSettingsButton(-40, () => this.togglePauseMusic());
+    const musicSlider = this.createVolumeSlider(this.pauseSettingsContainer, -60, this.gameSettings.musicVolume ?? 0.6, (value) => this.handlePauseMusicVolume(value));
     const sfxToggle = this.createSettingsButton(40, () => this.togglePauseSfx(), 'Hangeffektek:');
     const back = this.createSettingsButton(120, () => this.hidePauseSettings(), 'Vissza');
 
@@ -123,17 +168,15 @@ export default class GameScene extends Phaser.Scene {
       overlay,
       panel,
       title,
-      musicToggle.button,
-      musicToggle.text,
+      musicSlider,
       sfxToggle.button,
       sfxToggle.text,
       back.button,
       back.text
     ]);
 
-    this.pauseMusicLabel = musicToggle.text;
+    this.pauseMusicSlider = musicSlider;
     this.pauseSfxLabel = sfxToggle.text;
-    this.updatePauseMusicLabel();
     this.updatePauseSfxLabel();
   }
 
@@ -168,8 +211,6 @@ export default class GameScene extends Phaser.Scene {
     if (this.isPaused) return;
     this.isPaused = true;
     this.pauseSettingsVisible = false;
-    this.savedVelocity.copy(this.ball.body.velocity);
-    this.ball.setVelocity(0, 0);
     this.paddle.setVelocity(0, 0);
     this.physics.world.pause();
     this.pauseContainer.setVisible(true);
@@ -182,7 +223,6 @@ export default class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.pauseSettingsVisible = false;
     this.physics.world.resume();
-    this.ball.setVelocity(this.savedVelocity.x, this.savedVelocity.y);
     this.pauseContainer.setVisible(false);
     this.pauseSettingsContainer.setVisible(false);
   }
@@ -212,14 +252,11 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  togglePauseMusic() {
-    this.gameSettings.musicEnabled = !this.gameSettings.musicEnabled;
-    this.updatePauseMusicLabel();
-  }
-
-  updatePauseMusicLabel() {
-    if (!this.pauseMusicLabel) return;
-    this.pauseMusicLabel.setText(`Zene: ${this.gameSettings.musicEnabled ? 'BE' : 'KI'}`);
+  handlePauseMusicVolume(value, syncSlider = false) {
+    const clamped = Phaser.Math.Clamp(value, 0, 1);
+    this.gameSettings.musicVolume = clamped;
+    this.gameSettings.musicEnabled = clamped > 0.001;
+    if (syncSlider) this.pauseMusicSlider?.setValue(clamped, false);
   }
 
   togglePauseSfx() {
@@ -247,15 +284,26 @@ export default class GameScene extends Phaser.Scene {
     const speed = 400;
     const moveLeft = this.cursors.left.isDown || this.keyA.isDown;
     const moveRight = this.cursors.right.isDown || this.keyD.isDown;
+    const moveUp = this.cursors.up.isDown || this.keyW.isDown;
+    const moveDown = this.cursors.down.isDown || this.keyS.isDown;
 
     if (moveLeft && !moveRight) this.paddle.setVelocityX(-speed);
     else if (moveRight && !moveLeft) this.paddle.setVelocityX(speed);
     else this.paddle.setVelocityX(0);
 
+    if (moveUp && !moveDown) this.paddle.setVelocityY(-speed);
+    else if (moveDown && !moveUp) this.paddle.setVelocityY(speed);
+    else this.paddle.setVelocityY(0);
+
     this.paddle.x = Phaser.Math.Clamp(
       this.paddle.x,
       this.paddleHalfWidth + this.edgePadding,
       this.playAreaWidth - this.paddleHalfWidth - this.edgePadding
+    );
+    this.paddle.y = Phaser.Math.Clamp(
+      this.paddle.y,
+      this.paddleHalfHeight + this.edgePadding,
+      this.scale.height - this.paddleHalfHeight - this.edgePadding
     );
 
     if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
@@ -263,3 +311,5 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 }
+
+
