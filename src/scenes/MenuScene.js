@@ -31,30 +31,40 @@ export default class MenuScene extends Phaser.Scene {
     this.gameSettings.musicEnabled = this.musicEnabled;
     this.sfxEnabled = this.gameSettings.sfxEnabled ?? true;
 
-    let gameStarted = false;
-    const startGame = () => {
-      if (gameStarted) return;
-      if (this.isSettingsOpen) return;
-      gameStarted = true;
+    let startLocked = false;
+    const beginSceneTransition = () => {
+      if (startLocked) return false;
+      if (this.isSettingsOpen) return false;
+      startLocked = true;
       if (this.unlockHandler) {
         this.sound.off(Phaser.Sound.Events.UNLOCKED, this.unlockHandler);
         this.unlockHandler = null;
       }
       this.music?.stop();
+      return true;
+    };
+
+    const startCampaign = () => {
+      if (!beginSceneTransition()) return;
       this.transitionToScene('Game');
+    };
+
+    const startTycoon = () => {
+      if (!beginSceneTransition()) return;
+      this.transitionToScene('Tycoon');
     };
 
     const startBtn = this.createButton(width / 2, height / 2 + 70, 'Start', () => this.showStartOptions());
     this.startButton = startBtn;
     this.startButtonRect = startBtn.rect;
 
-    const settingsBtn = this.createButton(width / 2, height / 2 + 220, 'Be\u00E1ll\u00EDt\u00E1sok', () => this.showSettingsMenu());
+    const settingsBtn = this.createButton(width / 2, height / 2 + 220, 'Settings', () => this.showSettingsMenu());
     this.settingsButton = settingsBtn;
     this.settingsButtonRect = settingsBtn.rect;
-    this.createStartOptionsMenu(startGame);
+    this.createStartOptionsMenu(startCampaign, startTycoon);
 
     this.input.keyboard.once('keydown-ENTER', () => {
-      startGame();
+      startCampaign();
     });
     this.input.keyboard.on('keydown-ESC', () => {
       if (this.startOptionsVisible && !this.isSettingsOpen) this.hideStartOptions();
@@ -110,11 +120,11 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   createVolumeSlider(y, initialValue, onChange) {
-    const sliderWidth = 260;
+    const sliderWidth = 320;
     const slider = this.add.container(0, y);
     const label = this.add.text(0, -28, '', {
       fontFamily: 'Arial',
-      fontSize: 22,
+      fontSize: 26,
       color: '#c0d4ff'
     }).setOrigin(0.5);
 
@@ -130,7 +140,7 @@ export default class MenuScene extends Phaser.Scene {
     slider.add([label, track, fill, knob]);
 
     const updateLabel = (value) => {
-      label.setText(`Zene hanger\u0151: ${Math.round(value * 100)}%`);
+      label.setText(`Music volume: ${Math.round(value * 100)}%`);
     };
 
     const setValue = (value, emitChange = true) => {
@@ -160,30 +170,20 @@ export default class MenuScene extends Phaser.Scene {
     return slider;
   }
 
-  createStartOptionsMenu(startGame) {
+  createStartOptionsMenu(startCampaign, startTycoon) {
     const { width, height } = this.scale;
     this.startOptionsVisible = false;
-    this.tycoonInfoTimer = null;
 
-    const campaignBtn = this.createButton(width / 2, height / 2 + 10, 'START CAMPAIGN', () => {
+    const campaignBtn = this.createButton(width / 2, height / 2 + 40, 'START CAMPAIGN', () => {
       this.hideStartOptions(true);
-      startGame();
-    }, 280, 60, 28);
-    const tycoonBtn = this.createButton(width / 2, height / 2 + 90, 'START TYCOON', () => this.handleTycoonSelection(), 280, 60, 28);
+      startCampaign();
+    }, 360, 110, 36);
+    const tycoonBtn = this.createButton(width / 2, height / 2 + 200, 'START TYCOON', () => {
+      this.hideStartOptions(true);
+      startTycoon();
+    }, 360, 110, 36);
     this.startOptionButtons = [campaignBtn, tycoonBtn];
     this.toggleStartSubmenu(false);
-
-    this.startOptionHint = this.add.text(width / 2, height / 2 - 30, 'ESC - Vissza a men\u00FCbe', {
-      fontFamily: 'Arial',
-      fontSize: 18,
-      color: '#c0d4ff'
-    }).setOrigin(0.5).setVisible(false);
-
-    this.tycoonInfoText = this.add.text(width / 2, height / 2 + 160, 'Tycoon mode coming soon...', {
-      fontFamily: 'Arial',
-      fontSize: 20,
-      color: '#ffd166'
-    }).setOrigin(0.5).setVisible(false);
   }
 
   toggleMainButtons(visible) {
@@ -205,8 +205,6 @@ export default class MenuScene extends Phaser.Scene {
       if (visible) button.rect.setInteractive({ useHandCursor: true });
       else button.rect.disableInteractive();
     });
-    if (!visible) this.tycoonInfoText?.setVisible(false);
-    this.startOptionHint?.setVisible(visible);
   }
 
   showStartOptions() {
@@ -223,19 +221,6 @@ export default class MenuScene extends Phaser.Scene {
     if (!skipMainButtonToggle && !this.isSettingsOpen) this.toggleMainButtons(true);
   }
 
-  handleTycoonSelection() {
-    if (!this.tycoonInfoText) return;
-    this.tycoonInfoText.setVisible(true);
-    if (this.tycoonInfoTimer) {
-      this.tycoonInfoTimer.remove();
-      this.tycoonInfoTimer = null;
-    }
-    this.tycoonInfoTimer = this.time.delayedCall(1800, () => {
-      this.tycoonInfoText?.setVisible(false);
-      this.tycoonInfoTimer = null;
-    });
-  }
-
   playClickSound() {
     if (this.sfxEnabled) this.sound.play('click', { volume: 0.7 });
   }
@@ -249,18 +234,18 @@ export default class MenuScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
       .setOrigin(0.5);
-    const panel = this.add.rectangle(0, 0, 420, 320, 0x0a1a32, 0.96)
+    const panel = this.add.rectangle(0, 0, 520, 420, 0x0a1a32, 0.96)
       .setOrigin(0.5)
       .setStrokeStyle(4, 0x5de1ff);
-    const title = this.add.text(0, -120, 'Be\u00E1ll\u00EDt\u00E1sok', {
+    const title = this.add.text(0, -160, 'Settings', {
       fontFamily: 'Arial',
-      fontSize: 34,
+      fontSize: 42,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const musicSlider = this.createVolumeSlider(-70, this.musicVolume, (value) => this.setMusicVolume(value, false));
-    const sfxToggle = this.createSettingsButton(20, () => this.toggleSfx(), 'Hangeffektek: ');
-    const back = this.createSettingsButton(100, () => this.hideSettingsMenu(), 'Vissza');
+    const musicSlider = this.createVolumeSlider(-80, this.musicVolume, (value) => this.setMusicVolume(value, false));
+    const sfxToggle = this.createSettingsButton(20, () => this.toggleSfx(), 'Sound Effect: ');
+    const back = this.createSettingsButton(140, () => this.hideSettingsMenu(), 'Back');
 
     this.settingsContainer.add([overlay, panel, title, musicSlider, sfxToggle.button, sfxToggle.text, back.button, back.text]);
     this.musicVolumeSlider = musicSlider;
@@ -269,13 +254,13 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   createSettingsButton(y, callback, customLabel) {
-    const label = customLabel || 'Zene: ';
-    const button = this.add.rectangle(0, y, 260, 60, 0x00c2ff, 0.9)
+    const label = customLabel || 'Music: ';
+    const button = this.add.rectangle(0, y, 320, 72, 0x00c2ff, 0.9)
       .setStrokeStyle(2, 0xffffff, 0.95)
       .setInteractive({ useHandCursor: true });
     const text = this.add.text(0, y, label, {
       fontFamily: 'Arial',
-      fontSize: 24,
+      fontSize: 28,
       color: '#03253f'
     }).setOrigin(0.5);
 
@@ -326,7 +311,7 @@ export default class MenuScene extends Phaser.Scene {
 
   updateSfxToggleLabel() {
     if (!this.sfxToggleText) return;
-    this.sfxToggleText.setText(`Hangeffektek: ${this.sfxEnabled ? 'BE' : 'KI'}`);
+    this.sfxToggleText.setText(`Sound Effect: ${this.sfxEnabled ? 'ON' : 'OFF'}`);
   }
 
   transitionToScene(targetScene, duration = 650) {
