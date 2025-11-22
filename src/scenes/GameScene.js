@@ -3,6 +3,7 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale;
+    this.cameras.main.fadeIn(600, 0, 0, 0);
     this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true });
     this.musicVolume = this.gameSettings.musicVolume ?? 0.6;
     this.gameSettings.musicVolume = this.musicVolume;
@@ -228,7 +229,7 @@ export default class GameScene extends Phaser.Scene {
 
   quitToMenu() {
     this.physics.world.resume();
-    this.scene.start('Menu');
+    this.transitionToScene('Menu');
   }
 
   showPauseSettings() {
@@ -268,6 +269,15 @@ export default class GameScene extends Phaser.Scene {
   updatePauseSfxLabel() {
     if (!this.pauseSfxLabel) return;
     this.pauseSfxLabel.setText(`Hangeffektek: ${this.gameSettings.sfxEnabled ? 'BE' : 'KI'}`);
+  }
+
+  transitionToScene(targetScene, duration = 650) {
+    if (this.transitioning) return;
+    this.transitioning = true;
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.start(targetScene);
+    });
+    this.cameras.main.fadeOut(duration, 0, 0, 0);
   }
 
   update() {

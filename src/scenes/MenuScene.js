@@ -5,6 +5,7 @@ export default class MenuScene extends Phaser.Scene {
     const { width, height } = this.scale;
 
     this.cameras.main.setBackgroundColor('#0f172a');
+    this.cameras.main.fadeIn(600, 0, 0, 0);
     this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true });
 
     this.add.image(width / 2, height / 2, 'menuBg')
@@ -40,7 +41,7 @@ export default class MenuScene extends Phaser.Scene {
         this.unlockHandler = null;
       }
       this.music?.stop();
-      this.scene.start('Game');
+      this.transitionToScene('Game');
     };
 
     const startBtn = this.createButton(width / 2, height / 2 + 70, 'Start', () => this.showStartOptions());
@@ -165,7 +166,7 @@ export default class MenuScene extends Phaser.Scene {
     this.tycoonInfoTimer = null;
 
     const campaignBtn = this.createButton(width / 2, height / 2 + 10, 'START CAMPAIGN', () => {
-      this.hideStartOptions();
+      this.hideStartOptions(true);
       startGame();
     }, 280, 60, 28);
     const tycoonBtn = this.createButton(width / 2, height / 2 + 90, 'START TYCOON', () => this.handleTycoonSelection(), 280, 60, 28);
@@ -215,11 +216,11 @@ export default class MenuScene extends Phaser.Scene {
     this.toggleStartSubmenu(true);
   }
 
-  hideStartOptions() {
+  hideStartOptions(skipMainButtonToggle = false) {
     if (!this.startOptionsVisible) return;
     this.startOptionsVisible = false;
     this.toggleStartSubmenu(false);
-    if (!this.isSettingsOpen) this.toggleMainButtons(true);
+    if (!skipMainButtonToggle && !this.isSettingsOpen) this.toggleMainButtons(true);
   }
 
   handleTycoonSelection() {
@@ -326,6 +327,15 @@ export default class MenuScene extends Phaser.Scene {
   updateSfxToggleLabel() {
     if (!this.sfxToggleText) return;
     this.sfxToggleText.setText(`Hangeffektek: ${this.sfxEnabled ? 'BE' : 'KI'}`);
+  }
+
+  transitionToScene(targetScene, duration = 650) {
+    if (this.transitioning) return;
+    this.transitioning = true;
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.start(targetScene);
+    });
+    this.cameras.main.fadeOut(duration, 0, 0, 0);
   }
 }
 

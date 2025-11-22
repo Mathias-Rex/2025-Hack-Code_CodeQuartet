@@ -4,6 +4,7 @@ export default class IntroScene extends Phaser.Scene {
   create() {
     const { width, height } = this.scale;
     this.cameras.main.setBackgroundColor('#02030a');
+    this.cameras.main.fadeIn(600, 0, 0, 0);
 
     this.add.image(width / 2, height / 2, 'introBg')
       .setDisplaySize(width, height)
@@ -74,6 +75,15 @@ export default class IntroScene extends Phaser.Scene {
     this.finished = true;
     window.__INTRO_SHOWN = true;
     this.introSound?.stop();
-    this.scene.start('Menu');
+    this.fadeToScene('Menu');
+  }
+
+  fadeToScene(targetScene, duration = 650) {
+    if (this.transitioning) return;
+    this.transitioning = true;
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.start(targetScene);
+    });
+    this.cameras.main.fadeOut(duration, 0, 0, 0);
   }
 }
