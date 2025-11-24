@@ -41,6 +41,19 @@ export default class GameScene extends Phaser.Scene {
     this.paddleHalfHeight = this.paddle.displayHeight / 2;
     this.edgePadding = 12;
 
+    const contactLabel = '!!CONTACT!!';
+    this.contactText = this.add.text(width / 2, 0, contactLabel, {
+      fontFamily: 'Arial',
+      fontSize: 24,
+      color: '#ff2b2b'
+    }).setOrigin(0.5, 0).setDepth(5);
+    const barWidth = Math.max(12, this.contactText.displayWidth * 3);
+    const barY = this.contactText.displayHeight;
+    this.contactBar = this.add.rectangle(width / 2, barY, barWidth, 14, 0xc60000)
+      .setOrigin(0.5, 0)
+      .setDepth(5);
+    this.contactText.setY(this.contactBar.y + this.contactBar.height + 6);
+
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keyR = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.keyEsc = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
@@ -48,6 +61,32 @@ export default class GameScene extends Phaser.Scene {
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
     this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+    this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    this.createLaserTexture();
+    this.bullets = this.physics.add.group({
+      classType: Phaser.Physics.Arcade.Image,
+      defaultKey: 'laserBeam',
+      maxSize: 30
+    });
+    this.lastShotTime = 0;
+    this.magazineSize = 15;
+    this.shotsFired = 0;
+    this.isReloading = false;
+    const reloadY = this.contactText.y + this.contactText.displayHeight + 24;
+    const reloadX = 20;
+    this.reloadBg = this.add.rectangle(reloadX, reloadY, 10, 10, 0x000000, 0.45)
+      .setOrigin(0, 0)
+      .setDepth(4.5)
+      .setStrokeStyle(2, 0xff2b2b)
+      .setVisible(true);
+    this.reloadText = this.add.text(reloadX, reloadY, '', {
+      fontFamily: 'Arial',
+      fontSize: 36,
+      color: '#ff2b2b'
+    }).setOrigin(0, 0).setDepth(5).setVisible(true);
+    this.reloadTimer = null;
+    this.updateAmmoText();
 
     this.isPaused = false;
     this.pauseSettingsVisible = false;
@@ -223,6 +262,87 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  createLaserTexture() {
+    if (this.textures.exists('laserBeam')) return;
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0x1c9bff, 1);
+    g.fillRect(0, 4, 8, 22);
+    g.fillStyle(0x9be8ff, 1);
+    g.fillRect(2, 0, 4, 26);
+    g.generateTexture('laserBeam', 8, 26);
+    g.destroy();
+  }
+
+  tryShootLaser() {
+    if (this.isReloading) return;
+    const now = this.time.now;
+    const cooldownMs = 220;
+    if (now - this.lastShotTime < cooldownMs) return;
+    this.lastShotTime = now;
+
+    const spawnY = this.paddle.y - this.paddleHalfHeight - 10;
+    const bullet = this.bullets.get(this.paddle.x, spawnY, 'laserBeam');
+    if (!bullet) return;
+
+    bullet.setActive(true);
+    bullet.setVisible(true);
+    bullet.body.enable = true;
+    bullet.body.reset(this.paddle.x, spawnY);
+    bullet.body.setAllowGravity(false);
+    bullet.setBlendMode(Phaser.BlendModes.ADD);
+    bullet.setDepth(1);
+    bullet.setVelocity(0, -650);
+
+    this.shotsFired += 1;
+    if (this.shotsFired >= this.magazineSize) {
+      this.startReload();
+    } else {
+      this.updateAmmoText();
+    }
+  }
+
+  recycleBullets() {
+    this.bullets.children.each((bullet) => {
+      if (bullet.active && bullet.y < -50) {
+        bullet.disableBody(true, true);
+      }
+    });
+  }
+
+  startReload() {
+    if (this.isReloading) return;
+    this.isReloading = true;
+    this.setReloadLabel('Reloading...', true);
+    this.reloadTimer?.remove(false);
+    this.reloadTimer = this.time.delayedCall(5000, () => {
+      this.shotsFired = 0;
+      this.isReloading = false;
+      this.reloadTimer = null;
+      this.updateAmmoText();
+    });
+  }
+
+  updateAmmoText() {
+    if (this.isReloading) return;
+    const remaining = Math.max(0, this.magazineSize - this.shotsFired);
+    this.setReloadLabel(`Ammo: ${remaining}/${this.magazineSize}`, true);
+  }
+
+  setReloadLabel(text, visible) {
+    this.reloadText.setText(text);
+    this.reloadText.setVisible(visible);
+    const paddingX = 10;
+    const paddingY = 6;
+    const bgW = this.reloadText.displayWidth + paddingX;
+    const bgH = this.reloadText.displayHeight + paddingY;
+    const bgX = this.reloadText.x - paddingX * 0.35;
+    const bgY = this.reloadText.y - paddingY * 0.35;
+    this.reloadBg
+      .setPosition(bgX, bgY)
+      .setSize(bgW, bgH)
+      .setVisible(visible);
+  }
+
   pauseGame() {
     if (this.isPaused) return;
     this.isPaused = true;
@@ -331,6 +451,18 @@ export default class GameScene extends Phaser.Scene {
       this.playAreaWidth - this.paddleHalfWidth - this.edgePadding
     );
     this.paddle.y = this.scale.height - this.paddleHalfHeight - this.edgePadding;
+
+    if (this.keySpace.isDown) {
+      this.tryShootLaser();
+    }
+
+    if (this.isReloading && this.reloadTimer) {
+      const remaining = Math.max(0, this.reloadTimer.getRemainingSeconds());
+      this.setReloadLabel(`Reloading... ${remaining.toFixed(1)}s`, true);
+    } else {
+      this.updateAmmoText();
+    }
+    this.recycleBullets();
 
     if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
       this.scene.restart();
