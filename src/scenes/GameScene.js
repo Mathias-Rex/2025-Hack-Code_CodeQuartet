@@ -40,6 +40,8 @@ export default class GameScene extends Phaser.Scene {
     this.paddleHalfWidth = this.paddle.displayWidth / 2;
     this.paddleHalfHeight = this.paddle.displayHeight / 2;
     this.edgePadding = 12;
+    this.paddleMaxTilt = Phaser.Math.DegToRad(35);
+    this.paddleTiltLerp = 0.12;
 
     const contactLabel = '!!CONTACT!!';
     this.contactText = this.add.text(width / 2, 0, contactLabel, {
@@ -87,6 +89,23 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0, 0).setDepth(5).setVisible(true);
     this.reloadTimer = null;
     this.updateAmmoText();
+    this.enemyHitsToDestroy = 5;
+    this.totalEnemiesToSpawn = 10;
+    this.remainingEnemies = this.totalEnemiesToSpawn;
+    const enemyLabelY = reloadY + this.reloadText.displayHeight + 12;
+    this.enemyCountBg = this.add.rectangle(reloadX, enemyLabelY, 10, 10, 0x000000, 0.45)
+      .setOrigin(0, 0)
+      .setDepth(4.5)
+      .setStrokeStyle(2, 0xff2b2b)
+      .setVisible(true);
+    this.enemyCountText = this.add.text(reloadX, enemyLabelY, '', {
+      fontFamily: 'Arial',
+      fontSize: 36,
+      color: '#ff2b2b'
+    }).setOrigin(0, 0).setDepth(5).setVisible(true);
+    this.updateEnemyCountLabel();
+    this.enemyOverlap = null;
+    this.spawnEnemyShip();
 
     this.isPaused = false;
     this.pauseSettingsVisible = false;
@@ -301,6 +320,54 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  spawnEnemyShip() {
+    if (this.remainingEnemies <= 0) return;
+    const { width } = this.scale;
+    this.enemyShipHits = 0;
+    const desiredWidth = Math.min(180, width * 0.35);
+    const spawnOrReuse = () => {
+      if (this.enemyShip) return this.enemyShip;
+      const sprite = this.physics.add.image(width / 2, 0, 'enemyShip1');
+      sprite.setImmovable(true);
+      sprite.body.setAllowGravity(false);
+      return sprite;
+    };
+    this.enemyShip = spawnOrReuse();
+    const scale = desiredWidth / this.enemyShip.width;
+    this.enemyShip.setScale(scale);
+    const bodyWidth = this.enemyShip.displayWidth * 0.65;
+    const bodyHeight = this.enemyShip.displayHeight * 0.8;
+    this.enemyShip.body.setSize(bodyWidth, bodyHeight, true);
+    const startY = -this.enemyShip.displayHeight;
+    this.enemyShip.enableBody(true, width / 2, startY, true, true);
+    this.enemyShip.setData('hp', this.enemyHitsToDestroy);
+    this.enemyShip.setVelocity(0, 60);
+    this.enemyShip.setDepth(0.5);
+    this.enemyOverlap?.destroy();
+    this.enemyOverlap = this.physics.add.overlap(this.bullets, this.enemyShip, this.handleBulletHitEnemy, null, this);
+  }
+
+  handleBulletHitEnemy(bullet, enemy) {
+    bullet.disableBody(true, true);
+    if (!enemy.active) return;
+    const currentHp = enemy.getData('hp') ?? this.enemyHitsToDestroy;
+    const newHp = currentHp - 1;
+    enemy.setData('hp', newHp);
+    this.enemyShipHits += 1;
+    if (newHp <= 0 || this.enemyShipHits >= this.enemyHitsToDestroy) {
+      this.destroyEnemyShip(enemy);
+    }
+  }
+
+  destroyEnemyShip(enemy) {
+    enemy.disableBody(true, true);
+    this.remainingEnemies -= 1;
+    this.updateEnemyCountLabel();
+    if (this.remainingEnemies > 0) {
+      this.spawnEnemyShip();
+    }
+  }
+
   recycleBullets() {
     this.bullets.children.each((bullet) => {
       if (bullet.active && bullet.y < -50) {
@@ -341,6 +408,26 @@ export default class GameScene extends Phaser.Scene {
       .setPosition(bgX, bgY)
       .setSize(bgW, bgH)
       .setVisible(visible);
+    this.updateEnemyCountLabel();
+  }
+
+  updateEnemyCountLabel() {
+    if (!this.enemyCountText) return;
+    const label = `Enemies: ${Math.max(this.remainingEnemies, 0)}`;
+    this.enemyCountText.setText(label);
+    this.enemyCountText.setVisible(true);
+    const paddingX = 10;
+    const paddingY = 6;
+    const bgW = this.enemyCountText.displayWidth + paddingX;
+    const bgH = this.enemyCountText.displayHeight + paddingY;
+    const bgX = this.enemyCountText.x - paddingX * 0.35;
+    const bgY = this.enemyCountText.y - paddingY * 0.35;
+    if (this.enemyCountBg) {
+      this.enemyCountBg
+        .setPosition(bgX, bgY)
+        .setSize(bgW, bgH)
+        .setVisible(true);
+    }
   }
 
   pauseGame() {
@@ -436,7 +523,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isPaused) return;
 
-    const speed = 400;
+    const speed = 160;
     const moveLeft = this.cursors.left.isDown || this.keyA.isDown;
     const moveRight = this.cursors.right.isDown || this.keyD.isDown;
 
@@ -444,6 +531,10 @@ export default class GameScene extends Phaser.Scene {
     else if (moveRight && !moveLeft) this.paddle.setVelocityX(speed);
     else this.paddle.setVelocityX(0);
     this.paddle.setVelocityY(0);
+    const targetTilt = moveLeft === moveRight
+      ? 0
+      : (moveLeft ? -this.paddleMaxTilt : this.paddleMaxTilt);
+    this.paddle.rotation = Phaser.Math.Linear(this.paddle.rotation, targetTilt, this.paddleTiltLerp);
 
     this.paddle.x = Phaser.Math.Clamp(
       this.paddle.x,

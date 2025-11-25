@@ -10,6 +10,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image('menuBg', 'assets/images/hangar.png');
     this.load.image('introBg', 'assets/images/intro_background.jpg');
     this.load.image('gameBg', 'assets/images/background.png');
+    this.load.image('enemyShip1', 'assets/images/enemyship1.png');
     this.load.image('tycoonBg', 'assets/images/tycoon.png');
 
     // Use external image instead of generating 'ball' texture

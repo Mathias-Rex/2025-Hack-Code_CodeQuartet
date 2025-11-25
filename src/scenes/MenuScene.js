@@ -100,7 +100,6 @@ export default class MenuScene extends Phaser.Scene {
       fontSize,
       color: '#03253f'
     }).setOrigin(0.5);
-
     rect.on('pointerover', () => {
       rect.setFillStyle(0x72c9f1, 0.94);
       text.setColor('#00233c');
@@ -263,7 +262,6 @@ export default class MenuScene extends Phaser.Scene {
       fontSize: 28,
       color: '#03253f'
     }).setOrigin(0.5);
-
     button.on('pointerover', () => button.setFillStyle(0x40e9ff, 0.95));
     button.on('pointerout', () => button.setFillStyle(0x00c2ff, 0.9));
     button.on('pointerup', () => {
