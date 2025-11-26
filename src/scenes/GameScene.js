@@ -40,8 +40,10 @@ export default class GameScene extends Phaser.Scene {
     this.paddleHalfWidth = this.paddle.displayWidth / 2;
     this.paddleHalfHeight = this.paddle.displayHeight / 2;
     this.edgePadding = 12;
+    this.paddleVerticalOffset = 90;
     this.paddleMaxTilt = Phaser.Math.DegToRad(35);
     this.paddleTiltLerp = 0.12;
+    this.paddle.y = height - this.paddleHalfHeight - this.edgePadding - this.paddleVerticalOffset;
 
     const contactLabel = '!!CONTACT!!';
     this.contactText = this.add.text(width / 2, 0, contactLabel, {
@@ -299,18 +301,23 @@ export default class GameScene extends Phaser.Scene {
     if (now - this.lastShotTime < cooldownMs) return;
     this.lastShotTime = now;
 
-    const spawnY = this.paddle.y - this.paddleHalfHeight - 10;
-    const bullet = this.bullets.get(this.paddle.x, spawnY, 'laserBeam');
+    const muzzleOffset = new Phaser.Math.Vector2(0, -this.paddleHalfHeight - 10).rotate(this.paddle.rotation);
+    const spawnX = this.paddle.x + muzzleOffset.x;
+    const spawnY = this.paddle.y + muzzleOffset.y;
+    const bullet = this.bullets.get(spawnX, spawnY, 'laserBeam');
     if (!bullet) return;
 
     bullet.setActive(true);
     bullet.setVisible(true);
     bullet.body.enable = true;
-    bullet.body.reset(this.paddle.x, spawnY);
+    bullet.body.reset(spawnX, spawnY);
     bullet.body.setAllowGravity(false);
     bullet.setBlendMode(Phaser.BlendModes.ADD);
     bullet.setDepth(1);
-    bullet.setVelocity(0, -650);
+    bullet.setRotation(this.paddle.rotation);
+    const direction = new Phaser.Math.Vector2(0, -1).rotate(this.paddle.rotation);
+    const bulletSpeed = 650;
+    bullet.setVelocity(direction.x * bulletSpeed, direction.y * bulletSpeed);
 
     this.shotsFired += 1;
     if (this.shotsFired >= this.magazineSize) {
@@ -333,18 +340,42 @@ export default class GameScene extends Phaser.Scene {
       return sprite;
     };
     this.enemyShip = spawnOrReuse();
-    const scale = desiredWidth / this.enemyShip.width;
-    this.enemyShip.setScale(scale);
+    const baseScale = desiredWidth / this.enemyShip.width;
+    const scaleX = this.lastEnemyState?.scaleX ?? baseScale;
+    const scaleY = this.lastEnemyState?.scaleY ?? baseScale;
+    this.enemyShip.setScale(scaleX, scaleY);
     const bodyWidth = this.enemyShip.displayWidth * 0.65;
     const bodyHeight = this.enemyShip.displayHeight * 0.8;
     this.enemyShip.body.setSize(bodyWidth, bodyHeight, true);
-    const startY = -this.enemyShip.displayHeight;
-    this.enemyShip.enableBody(true, width / 2, startY, true, true);
-    this.enemyShip.setData('hp', this.enemyHitsToDestroy);
-    this.enemyShip.setVelocity(0, 60);
+    const startX = this.lastEnemyState?.x ?? width / 2;
+    const startY = this.lastEnemyState?.y ?? -this.enemyShip.displayHeight;
+    const hpToUse = this.lastEnemyState?.hp ?? this.enemyHitsToDestroy;
+    const vx = this.lastEnemyState?.velocityX ?? 0;
+    const vy = this.lastEnemyState?.velocityY ?? 60;
+    const rotation = this.lastEnemyState?.rotation ?? 0;
+    this.enemyShip.enableBody(true, startX, startY, true, true);
+    this.enemyShip.setData('hp', hpToUse);
+    this.enemyShip.setVelocity(vx, vy);
+    this.enemyShip.setRotation(rotation);
     this.enemyShip.setDepth(0.5);
     this.enemyOverlap?.destroy();
     this.enemyOverlap = this.physics.add.overlap(this.bullets, this.enemyShip, this.handleBulletHitEnemy, null, this);
+  }
+
+  snapshotEnemyState(enemy, hpValue) {
+    if (!enemy) return;
+    const body = enemy.body;
+    const safeHp = Math.max(1, hpValue ?? enemy.getData('hp') ?? this.enemyHitsToDestroy);
+    this.lastEnemyState = {
+      x: enemy.x,
+      y: enemy.y,
+      rotation: enemy.rotation,
+      scaleX: enemy.scaleX,
+      scaleY: enemy.scaleY,
+      velocityX: body?.velocity.x ?? 0,
+      velocityY: body?.velocity.y ?? 0,
+      hp: safeHp
+    };
   }
 
   handleBulletHitEnemy(bullet, enemy) {
@@ -355,16 +386,36 @@ export default class GameScene extends Phaser.Scene {
     enemy.setData('hp', newHp);
     this.enemyShipHits += 1;
     if (newHp <= 0 || this.enemyShipHits >= this.enemyHitsToDestroy) {
-      this.destroyEnemyShip(enemy);
+      this.destroyEnemyShip(enemy, { snapshot: true, hp: currentHp });
     }
   }
 
-  destroyEnemyShip(enemy) {
+  destroyEnemyShip(enemy, options = {}) {
+    const { snapshot = false, hp } = options;
+    if (snapshot) {
+      this.snapshotEnemyState(enemy, hp ?? enemy?.getData('hp'));
+    }
     enemy.disableBody(true, true);
     this.remainingEnemies -= 1;
     this.updateEnemyCountLabel();
     if (this.remainingEnemies > 0) {
       this.spawnEnemyShip();
+    }
+  }
+
+  handleEnemyOutOfBounds() {
+    if (!this.enemyShip || !this.enemyShip.active) return;
+    const { width, height } = this.scale;
+    const buffer = 40;
+    const left = -buffer;
+    const right = width + buffer;
+    const bottom = height + buffer;
+    const halfW = this.enemyShip.displayWidth / 2;
+    const halfH = this.enemyShip.displayHeight / 2;
+    const outOfHorizontal = this.enemyShip.x + halfW < left || this.enemyShip.x - halfW > right;
+    const outBelow = this.enemyShip.y - halfH > bottom;
+    if (outOfHorizontal || outBelow) {
+      this.destroyEnemyShip(this.enemyShip, { snapshot: false });
     }
   }
 
@@ -398,6 +449,10 @@ export default class GameScene extends Phaser.Scene {
   setReloadLabel(text, visible) {
     this.reloadText.setText(text);
     this.reloadText.setVisible(visible);
+    const hasAmmo = !this.isReloading;
+    const textColor = hasAmmo ? '#00ff6a' : '#ff2b2b';
+    const strokeColor = hasAmmo ? 0x00ff6a : 0xff2b2b;
+    this.reloadText.setColor(textColor);
     const paddingX = 10;
     const paddingY = 6;
     const bgW = this.reloadText.displayWidth + paddingX;
@@ -407,7 +462,8 @@ export default class GameScene extends Phaser.Scene {
     this.reloadBg
       .setPosition(bgX, bgY)
       .setSize(bgW, bgH)
-      .setVisible(visible);
+      .setVisible(visible)
+      .setStrokeStyle(2, strokeColor);
     this.updateEnemyCountLabel();
   }
 
@@ -541,7 +597,7 @@ export default class GameScene extends Phaser.Scene {
       this.paddleHalfWidth + this.edgePadding,
       this.playAreaWidth - this.paddleHalfWidth - this.edgePadding
     );
-    this.paddle.y = this.scale.height - this.paddleHalfHeight - this.edgePadding;
+    this.paddle.y = this.scale.height - this.paddleHalfHeight - this.edgePadding - this.paddleVerticalOffset;
 
     if (this.keySpace.isDown) {
       this.tryShootLaser();
@@ -554,6 +610,7 @@ export default class GameScene extends Phaser.Scene {
       this.updateAmmoText();
     }
     this.recycleBullets();
+    this.handleEnemyOutOfBounds();
 
     if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
       this.scene.restart();
