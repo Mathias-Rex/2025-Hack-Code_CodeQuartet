@@ -65,7 +65,6 @@ export default class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keyR = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.keyEsc = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
-    this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
@@ -89,7 +88,6 @@ export default class GameScene extends Phaser.Scene {
     this.magazineSize = 15;
     this.shotsFired = 0;
     this.isReloading = false;
-    this.playerDead = false;
     this.playerDead = false;
     const reloadY = this.contactText.y + this.contactText.displayHeight + 24;
     const reloadX = 20;
@@ -382,13 +380,14 @@ export default class GameScene extends Phaser.Scene {
     const bodyWidth = this.enemyShip.displayWidth * 0.65;
     const bodyHeight = this.enemyShip.displayHeight * 0.8;
     this.enemyShip.body.setSize(bodyWidth, bodyHeight, true);
-    const startX = this.lastEnemyState?.x ?? width / 2;
-    const startY = this.lastEnemyState?.y ?? -this.enemyShip.displayHeight;
-    const hpToUse = this.lastEnemyState?.hp ?? this.enemyHitsToDestroy;
+    const startX = width / 2;
+    const startY = -this.enemyShip.displayHeight;
+    const hpToUse = this.enemyHitsToDestroy;
     const vx = 0;
-    const vy = 80; // lassan lefelé indul
-    const rotation = this.lastEnemyState?.rotation ?? 0;
+    const vy = 80; // lassan lefel� indul
+    const rotation = 0;
     this.enemyShip.enableBody(true, startX, startY, true, true);
+    this.enemyShip.setActive(true).setVisible(true);
     this.enemyShip.setData('hp', hpToUse);
     this.enemyShip.setVelocity(vx, vy);
     this.enemyShip.setRotation(rotation);
@@ -829,6 +828,9 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 }
+
+
+
 
 
 
