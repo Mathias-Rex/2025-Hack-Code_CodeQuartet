@@ -12,6 +12,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.physics.world.setBounds(0, 0, width, height);
+    this.physics.world.on('worldbounds', (body) => this.handleWorldBoundsCollision(body));
 
     const bgTexture = this.textures.get('gameBg').getSourceImage();
     const bgTextureWidth = bgTexture.width;
@@ -20,7 +21,8 @@ export default class GameScene extends Phaser.Scene {
       .setDepth(-2);
     const bgScale = Math.max(width / bgTextureWidth, height / bgTextureHeight);
     this.background.setScale(bgScale);
-    this.backgroundScrollSpeed = 0.5;
+    this.backgroundBaseScrollSpeed = 0.5;
+    this.backgroundScrollSpeed = this.backgroundBaseScrollSpeed;
     this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.35)
       .setDepth(-1);
 
@@ -50,33 +52,45 @@ export default class GameScene extends Phaser.Scene {
       fontFamily: 'Arial',
       fontSize: 24,
       color: '#ff2b2b'
-    }).setOrigin(0.5, 0).setDepth(5);
+    }).setOrigin(0.5, 0.5).setDepth(5);
     const barWidth = Math.max(12, this.contactText.displayWidth * 3);
-    const barY = this.contactText.displayHeight;
-    this.contactBar = this.add.rectangle(width / 2, barY, barWidth, 14, 0xc60000)
-      .setOrigin(0.5, 0)
-      .setDepth(5);
-    this.contactText.setY(this.contactBar.y + this.contactBar.height + 6);
+    const barHeight = 26;
+    const barY = barHeight * 0.5;
+    this.contactBar = this.add.rectangle(width / 2, barY, barWidth, barHeight, 0x000000, 0)
+      .setOrigin(0.5, 0.5)
+      .setDepth(5)
+      .setStrokeStyle(2, 0xff0000, 1);
+    this.contactText.setY(this.contactBar.y);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keyR = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.keyEsc = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
     this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
     this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
     this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
 
     this.createLaserTexture();
+    this.createEnemyLaserTexture();
     this.bullets = this.physics.add.group({
       classType: Phaser.Physics.Arcade.Image,
       defaultKey: 'laserBeam',
+      maxSize: 30
+    });
+    this.enemyBullets = this.physics.add.group({
+      classType: Phaser.Physics.Arcade.Image,
+      defaultKey: 'enemyLaser',
       maxSize: 30
     });
     this.lastShotTime = 0;
     this.magazineSize = 15;
     this.shotsFired = 0;
     this.isReloading = false;
+    this.playerDead = false;
+    this.playerDead = false;
     const reloadY = this.contactText.y + this.contactText.displayHeight + 24;
     const reloadX = 20;
     this.reloadBg = this.add.rectangle(reloadX, reloadY, 10, 10, 0x000000, 0.45)
@@ -107,11 +121,17 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0, 0).setDepth(5).setVisible(true);
     this.updateEnemyCountLabel();
     this.enemyOverlap = null;
+    this.enemyFireTimer = null;
+    this.victoryShown = false;
+    this.victoryContainer = null;
     this.spawnEnemyShip();
+    this.aimLine = this.add.graphics({ lineStyle: { width: 0.8 } }).setDepth(2);
+    this.aimLineEnabled = true;
 
     this.isPaused = false;
     this.pauseSettingsVisible = false;
     this.createPauseMenu();
+    this.physics.add.overlap(this.enemyBullets, this.paddle, this.handlePlayerHit, null, this);
 
   }
 
@@ -294,6 +314,17 @@ export default class GameScene extends Phaser.Scene {
     g.destroy();
   }
 
+  createEnemyLaserTexture() {
+    if (this.textures.exists('enemyLaser')) return;
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0xffe066, 1);
+    g.fillRect(0, 4, 8, 22);
+    g.fillStyle(0xffc107, 1);
+    g.fillRect(2, 0, 4, 26);
+    g.generateTexture('enemyLaser', 8, 26);
+    g.destroy();
+  }
+
   tryShootLaser() {
     if (this.isReloading) return;
     const now = this.time.now;
@@ -312,6 +343,8 @@ export default class GameScene extends Phaser.Scene {
     bullet.body.enable = true;
     bullet.body.reset(spawnX, spawnY);
     bullet.body.setAllowGravity(false);
+    bullet.body.setCollideWorldBounds(true);
+    bullet.body.onWorldBounds = true;
     bullet.setBlendMode(Phaser.BlendModes.ADD);
     bullet.setDepth(1);
     bullet.setRotation(this.paddle.rotation);
@@ -331,7 +364,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.remainingEnemies <= 0) return;
     const { width } = this.scale;
     this.enemyShipHits = 0;
-    const desiredWidth = Math.min(180, width * 0.35);
+    const desiredWidth = this.paddle.displayWidth;
     const spawnOrReuse = () => {
       if (this.enemyShip) return this.enemyShip;
       const sprite = this.physics.add.image(width / 2, 0, 'enemyShip1');
@@ -341,8 +374,10 @@ export default class GameScene extends Phaser.Scene {
     };
     this.enemyShip = spawnOrReuse();
     const baseScale = desiredWidth / this.enemyShip.width;
-    const scaleX = this.lastEnemyState?.scaleX ?? baseScale;
-    const scaleY = this.lastEnemyState?.scaleY ?? baseScale;
+    const savedScaleX = this.lastEnemyState?.scaleX;
+    const savedScaleY = this.lastEnemyState?.scaleY;
+    const scaleX = savedScaleX ?? baseScale;
+    const scaleY = savedScaleY ?? baseScale;
     this.enemyShip.setScale(scaleX, scaleY);
     const bodyWidth = this.enemyShip.displayWidth * 0.65;
     const bodyHeight = this.enemyShip.displayHeight * 0.8;
@@ -350,8 +385,8 @@ export default class GameScene extends Phaser.Scene {
     const startX = this.lastEnemyState?.x ?? width / 2;
     const startY = this.lastEnemyState?.y ?? -this.enemyShip.displayHeight;
     const hpToUse = this.lastEnemyState?.hp ?? this.enemyHitsToDestroy;
-    const vx = this.lastEnemyState?.velocityX ?? 0;
-    const vy = this.lastEnemyState?.velocityY ?? 60;
+    const vx = 0;
+    const vy = 80; // lassan lefelé indul
     const rotation = this.lastEnemyState?.rotation ?? 0;
     this.enemyShip.enableBody(true, startX, startY, true, true);
     this.enemyShip.setData('hp', hpToUse);
@@ -359,7 +394,14 @@ export default class GameScene extends Phaser.Scene {
     this.enemyShip.setRotation(rotation);
     this.enemyShip.setDepth(0.5);
     this.enemyOverlap?.destroy();
-    this.enemyOverlap = this.physics.add.overlap(this.bullets, this.enemyShip, this.handleBulletHitEnemy, null, this);
+    this.enemyOverlap = this.physics.add.overlap(
+      this.bullets,
+      this.enemyShip,
+      this.handleBulletHitEnemy,
+      (bullet, enemy) => this.bulletHitsShipBody(bullet, enemy),
+      this
+    );
+    this.resetEnemyFire();
   }
 
   snapshotEnemyState(enemy, hpValue) {
@@ -390,16 +432,70 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  bulletHitsShipBody(bullet, ship) {
+    if (!bullet?.body || !ship?.body) return false;
+    const b = bullet.body;
+    const s = ship.body;
+    return Phaser.Geom.Intersects.RectangleToRectangle(
+      new Phaser.Geom.Rectangle(b.x, b.y, b.width, b.height),
+      new Phaser.Geom.Rectangle(s.x, s.y, s.width, s.height)
+    );
+  }
+
+  resetEnemyFire() {
+    this.enemyFireTimer?.remove(false);
+    this.enemyFireTimer = this.time.addEvent({
+      delay: Phaser.Math.Between(1200, 2000),
+      loop: true,
+      callback: () => this.enemyShoot()
+    });
+  }
+
+  enemyShoot() {
+    if (!this.enemyShip || !this.enemyShip.active) return;
+    const bullet = this.enemyBullets.get(this.enemyShip.x, this.enemyShip.y + this.enemyShip.displayHeight * 0.35, 'enemyLaser');
+    if (!bullet) return;
+    bullet.setActive(true);
+    bullet.setVisible(true);
+    bullet.body.enable = true;
+    bullet.body.reset(bullet.x, bullet.y);
+    bullet.body.setAllowGravity(false);
+    bullet.body.setCollideWorldBounds(true);
+    bullet.body.onWorldBounds = true;
+    bullet.setBlendMode(Phaser.BlendModes.ADD);
+    bullet.setDepth(1);
+    const target = new Phaser.Math.Vector2(this.paddle.x, this.paddle.y);
+    const direction = target.subtract(new Phaser.Math.Vector2(bullet.x, bullet.y)).normalize();
+    const speed = 260;
+    bullet.setRotation(Phaser.Math.Angle.Between(bullet.x, bullet.y, this.paddle.x, this.paddle.y) + Math.PI / 2);
+    bullet.setVelocity(direction.x * speed, direction.y * speed);
+  }
+
+  handlePlayerHit(paddle, enemyBullet) {
+    if (this.playerDead || !enemyBullet?.active) return;
+    enemyBullet.disableBody(true, true);
+    this.playerDead = true;
+    this.physics.world.pause();
+    this.cameras.main.fadeOut(400, 0, 0, 0, (_camera, progress) => {
+      if (progress === 1) {
+        this.scene.restart();
+      }
+    });
+  }
+
   destroyEnemyShip(enemy, options = {}) {
     const { snapshot = false, hp } = options;
     if (snapshot) {
       this.snapshotEnemyState(enemy, hp ?? enemy?.getData('hp'));
     }
     enemy.disableBody(true, true);
-    this.remainingEnemies -= 1;
+    this.enemyFireTimer?.remove(false);
+    this.remainingEnemies = Math.max(0, this.remainingEnemies - 1);
     this.updateEnemyCountLabel();
     if (this.remainingEnemies > 0) {
       this.spawnEnemyShip();
+    } else {
+      this.showVictoryBanner();
     }
   }
 
@@ -425,6 +521,22 @@ export default class GameScene extends Phaser.Scene {
         bullet.disableBody(true, true);
       }
     });
+  }
+
+  recycleEnemyBullets() {
+    this.enemyBullets.children.each((bullet) => {
+      if (bullet.active && bullet.y > this.scale.height + 50) {
+        bullet.disableBody(true, true);
+      }
+    });
+  }
+
+  handleWorldBoundsCollision(body) {
+    const go = body?.gameObject;
+    if (!go) return;
+    if (this.bullets.contains(go) || this.enemyBullets.contains(go)) {
+      go.disableBody(true, true);
+    }
   }
 
   startReload() {
@@ -465,6 +577,91 @@ export default class GameScene extends Phaser.Scene {
       .setVisible(visible)
       .setStrokeStyle(2, strokeColor);
     this.updateEnemyCountLabel();
+  }
+
+  showVictoryBanner() {
+    if (this.victoryShown) return;
+    this.victoryShown = true;
+    // UI elrejtése
+    this.contactText.setVisible(false);
+    this.contactBar.setVisible(false);
+    this.reloadText.setVisible(false);
+    this.reloadBg.setVisible(false);
+    this.enemyCountText.setVisible(false);
+    this.enemyCountBg.setVisible(false);
+
+    const { width, height } = this.scale;
+    const barWidth = Math.min(width * 0.9, 820);
+    const barHeight = 180;
+    const container = this.add.container(width / 2, height / 2).setDepth(10);
+    const bar = this.add.rectangle(0, 0, barWidth, barHeight, 0x1d69ff, 0.9)
+      .setStrokeStyle(6, 0x79aaff, 0.95)
+      .setOrigin(0.5);
+    const title = this.add.text(0, -32, 'Your Victory', {
+      fontFamily: 'Arial',
+      fontSize: 52,
+      fontStyle: 'bold',
+      color: '#eaf2ff'
+    }).setOrigin(0.5);
+    const subtitle = this.add.text(0, 34, 'the threat eliminated', {
+      fontFamily: 'Arial',
+      fontSize: 30,
+      color: '#d1e4ff'
+    }).setOrigin(0.5);
+    container.add([bar, title, subtitle]);
+    this.victoryContainer = container;
+  }
+
+  updateAimLine() {
+    if (!this.aimLine) return;
+    if (!this.aimLineEnabled) return;
+    this.aimLine.clear();
+    const origin = new Phaser.Math.Vector2(this.paddle.x, this.paddle.y - this.paddleHalfHeight);
+    const dir = new Phaser.Math.Vector2(0, -1).rotate(this.paddle.rotation).normalize();
+    if (dir.lengthSq() < 0.0001) return;
+
+    const { width, height } = this.scale;
+    const hits = [];
+    const screenRect = { left: 0, right: width, top: 0, bottom: height };
+
+    const intersectRect = (rect) => {
+      const tx1 = dir.x !== 0 ? (rect.left - origin.x) / dir.x : -Infinity;
+      const tx2 = dir.x !== 0 ? (rect.right - origin.x) / dir.x : Infinity;
+      const ty1 = dir.y !== 0 ? (rect.top - origin.y) / dir.y : -Infinity;
+      const ty2 = dir.y !== 0 ? (rect.bottom - origin.y) / dir.y : Infinity;
+      const tmin = Math.max(Math.min(tx1, tx2), Math.min(ty1, ty2));
+      const tmax = Math.min(Math.max(tx1, tx2), Math.max(ty1, ty2));
+      if (tmax < 0 || tmin > tmax) return null;
+      const tHit = tmin >= 0 ? tmin : tmax;
+      return tHit >= 0 ? tHit : null;
+    };
+
+    const tScreen = intersectRect(screenRect);
+    if (tScreen !== null) hits.push(tScreen);
+
+    if (this.enemyShip && this.enemyShip.active) {
+      const halfW = this.enemyShip.displayWidth / 2;
+      const halfH = this.enemyShip.displayHeight / 2;
+      const rect = {
+        left: this.enemyShip.x - halfW,
+        right: this.enemyShip.x + halfW,
+        top: this.enemyShip.y - halfH,
+        bottom: this.enemyShip.y + halfH
+      };
+      const tEnemy = intersectRect(rect);
+      if (tEnemy !== null) hits.push(tEnemy);
+    }
+
+    if (!hits.length) return;
+    const t = Math.min(...hits);
+    const end = origin.clone().add(dir.scale(t));
+    const hasAmmo = !this.isReloading;
+    const color = hasAmmo ? 0x00ff6a : 0xff2b2b;
+    this.aimLine.lineStyle(0.8, color, 1);
+    this.aimLine.beginPath();
+    this.aimLine.moveTo(origin.x, origin.y);
+    this.aimLine.lineTo(end.x, end.y);
+    this.aimLine.strokePath();
   }
 
   updateEnemyCountLabel() {
@@ -610,16 +807,28 @@ export default class GameScene extends Phaser.Scene {
       this.updateAmmoText();
     }
     this.recycleBullets();
+    this.recycleEnemyBullets();
     this.handleEnemyOutOfBounds();
+    if (Phaser.Input.Keyboard.JustDown(this.keyE)) {
+      this.aimLineEnabled = !this.aimLineEnabled;
+      if (!this.aimLineEnabled) this.aimLine.clear();
+    }
+    this.updateAimLine();
 
     if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
-      this.scene.restart();
+      this.startReload();
     }
 
     if (this.background) {
-      this.background.tilePositionY -= this.backgroundScrollSpeed;
+      let scrollSpeed = this.backgroundBaseScrollSpeed;
+      const faster = this.keyW.isDown && !this.keyS.isDown;
+      const slower = this.keyS.isDown && !this.keyW.isDown;
+      if (faster) scrollSpeed *= 1.6;
+      else if (slower) scrollSpeed *= 0.45;
+      this.background.tilePositionY -= scrollSpeed;
     }
   }
 }
+
 
 
