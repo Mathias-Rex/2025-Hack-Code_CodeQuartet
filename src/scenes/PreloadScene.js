@@ -13,9 +13,6 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image('enemyShip1', 'assets/images/enemyship1.png');
     this.load.image('tycoonBg', 'assets/images/tycoon.png');
 
-    this.add.text(400, 300, 'Betoltes...', {
-      fontFamily: 'Arial', fontSize: 24, color: '#ffffff'
-    }).setOrigin(0.5);
   }
 
   create() {

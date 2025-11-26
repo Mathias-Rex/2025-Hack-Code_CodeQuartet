@@ -111,7 +111,7 @@ export default class IntroScene extends Phaser.Scene {
     });
     this.activeTweens.push(titleTween);
 
-    this.typewriteText(this.outbackTitle, 'OUTBACK PLACE', 80, () => {
+    this.typewriteText(this.outbackTitle, "BEHIND GOD'S BACK", 80, () => {
       const subTween = this.tweens.add({
         targets: this.outbackSubtitle,
         alpha: 1,

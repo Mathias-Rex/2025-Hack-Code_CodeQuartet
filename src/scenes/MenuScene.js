@@ -12,18 +12,12 @@ export default class MenuScene extends Phaser.Scene {
       .setDisplaySize(width, height)
       .setDepth(-1);
 
-    this.title = this.add.text(width / 2, height / 2 - 150, 'OUTBACK', {
+    this.title = this.add.text(width / 2, height / 2 - 120, "BEHIND GOD'S BACK", {
       fontFamily: 'Arial',
-      fontSize: 120,
+      fontSize: 110,
       fontStyle: 'bold',
       color: '#ffffff'
     }).setOrigin(0.5).setShadow(0, 0, '#00c2ff', 16, true, true);
-    this.add.text(width / 2, this.title.y + 78, 'P L A C E', {
-      fontFamily: 'Arial',
-      fontSize: 56,
-      letterSpacing: 30,
-      color: '#c0d4ff'
-    }).setOrigin(0.5);
 
     this.musicVolume = this.gameSettings.musicVolume ?? 0.6;
     this.musicEnabled = this.gameSettings.musicEnabled ?? this.musicVolume > 0.001;
