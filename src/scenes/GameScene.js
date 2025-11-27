@@ -7,7 +7,8 @@ export default class GameScene extends Phaser.Scene {
       { countFactor: 1.8, speed: 40, sizeRange: [1, 1.5], alpha: 0.35 },
       { countFactor: 1, speed: 70, sizeRange: [1, 2], alpha: 0.45 },
       { countFactor: 0.5, speed: 110, sizeRange: [1.5, 2.5], alpha: 0.6 },
-      { countFactor: 0.1, speed: 160, sizeRange: [2, 3], alpha: 0.8 }
+      { countFactor: 0.1, speed: 160, sizeRange: [2, 3], alpha: 0.8 },
+      { countFactor: 0.015, speed: 18, sizeRange: [100, 200], alpha: 0.01, kind: 'blob', color: 0xfff3c4, blurScale: 45 } // nagy, halvány foltok
     ];
     this.playerSpeed = 320;
     this.tiltLerp = 0.18;
@@ -25,6 +26,8 @@ export default class GameScene extends Phaser.Scene {
     this.ammo = this.maxAmmo;
     this.reloadTime = 3000;
     this.reloading = false;
+    this.playerMaxHp = 3;
+    this.playerHp = this.playerMaxHp;
     this.hitboxes = {
       playerRadiusFactor: 4,
       enemyRadiusFactor: 5,
@@ -52,6 +55,13 @@ export default class GameScene extends Phaser.Scene {
     this.sound.stopByKey('gameMusic');
     this.gameMusic = this.sound.add('gameMusic', { loop: true, volume: 0.6 });
     this.gameMusic.play();
+
+    // reset per-run state
+    this.reloading = false;
+    this.reloadEndTime = null;
+    this.ammo = this.maxAmmo;
+    this.playerHp = this.playerMaxHp;
+    this.starSpeedMultiplier = 1;
 
     this.createStarfield();
     this.createBulletTexture('playerBullet', 4, 18, 0x7cf4ff);
@@ -109,6 +119,8 @@ export default class GameScene extends Phaser.Scene {
     this.loadedBox = this.add.rectangle(0, 0, 10, 10).setOrigin(0, 0).setDepth(9).setStrokeStyle(2, 0xffd84d).setVisible(false);
     this.reloadEndTime = null;
 
+    this.createHealthBar();
+
     this.scale.on('resize', this.handleResize, this);
     this.debug = !!window.__DEBUG__;
     if (this.debug && !this.debugGfx) {
@@ -146,6 +158,7 @@ export default class GameScene extends Phaser.Scene {
       const count = Math.max(8, Math.floor(area * layer.countFactor));
       for (let i = 0; i < count; i += 1) {
         const size = Phaser.Math.FloatBetween(...layer.sizeRange);
+        const kind = layer.kind || 'star';
         this.stars.push({
           x: Phaser.Math.FloatBetween(0, width),
           y: Phaser.Math.FloatBetween(0, height),
@@ -153,7 +166,11 @@ export default class GameScene extends Phaser.Scene {
           speed: layer.speed,
           alphaBase: layer.alpha,
           phase: Phaser.Math.FloatBetween(0, Math.PI * 2),
-          layer: idx
+          layer: idx,
+          kind,
+          blurScale: layer.blurScale ?? 1.4,
+          color: layer.color ?? 0xffffff,
+          points: kind === 'blob' ? this.createBlobPoints(size) : null
         });
       }
     });
@@ -174,9 +191,26 @@ export default class GameScene extends Phaser.Scene {
       }
       const flicker = 0.8 + 0.2 * Math.sin(t * flickerFreq + star.phase);
       const alpha = Phaser.Math.Clamp(star.alphaBase * flicker, 0, 1);
-      const color = 0xffffff;
-      this.starGraphics.fillStyle(color, alpha);
-      this.starGraphics.fillCircle(star.x, star.y, star.size);
+      const color = star.color ?? 0xffffff;
+      if (star.kind === 'blob' && star.points) {
+        const pts = star.points;
+        const drawScaledBlob = (scale, a) => {
+          this.starGraphics.fillStyle(color, a);
+          this.starGraphics.beginPath();
+          this.starGraphics.moveTo(star.x + pts[0].x * scale, star.y + pts[0].y * scale);
+          for (let i = 1; i < pts.length; i += 1) {
+            this.starGraphics.lineTo(star.x + pts[i].x * scale, star.y + pts[i].y * scale);
+          }
+          this.starGraphics.closePath();
+          this.starGraphics.fillPath();
+        };
+        // soft blur-like halo, then core
+        drawScaledBlob(star.blurScale, alpha * 0.35);
+        drawScaledBlob(1, alpha);
+      } else {
+        this.starGraphics.fillStyle(color, alpha);
+        this.starGraphics.fillCircle(star.x, star.y, star.size);
+      }
     });
   }
 
@@ -364,17 +398,13 @@ export default class GameScene extends Phaser.Scene {
 
   handlePlayerHit(player, enemy) {
     enemy.disableBody(true, true);
-    this.addExplosion(player.x, player.y);
-    player.disableBody(true, true);
-    this.time.delayedCall(1200, () => this.scene.restart());
+    this.damagePlayer();
   }
 
   handlePlayerHitByBullet(player, bullet) {
     this.stopBulletTrail(bullet);
     bullet.disableBody(true, true);
-    this.addExplosion(player.x, player.y);
-    player.disableBody(true, true);
-    this.time.delayedCall(1200, () => this.scene.restart());
+    this.damagePlayer();
   }
 
   addExplosion(x, y, radius = 4, color = 0xffa64d) {
@@ -415,6 +445,45 @@ export default class GameScene extends Phaser.Scene {
     if (this.player.active) {
       this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, width - this.player.displayWidth / 2);
       this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, height - this.player.displayHeight / 2);
+    }
+  }
+
+  createHealthBar() {
+    const { width } = this.scale;
+    const barWidth = 150;
+    const barHeight = 18;
+    const x = width - barWidth - 20;
+    const y = 16;
+    this.hpBarBg = this.add.rectangle(x, y, barWidth, barHeight, 0x000000, 0.35)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0xffffff, 0.6)
+      .setDepth(10);
+    this.hpSegments = [];
+    const segmentW = barWidth / this.playerMaxHp;
+    for (let i = 0; i < this.playerMaxHp; i += 1) {
+      const seg = this.add.rectangle(x + i * segmentW + 2, y + 2, segmentW - 4, barHeight - 4, 0x1ee66d, 1)
+        .setOrigin(0, 0)
+        .setDepth(11);
+      this.hpSegments.push(seg);
+    }
+    this.updateHealthBar();
+  }
+
+  updateHealthBar() {
+    if (!this.hpSegments) return;
+    this.hpSegments.forEach((seg, idx) => {
+      seg.setVisible(idx < this.playerHp);
+    });
+  }
+
+  damagePlayer() {
+    if (!this.player.active) return;
+    this.playerHp = Math.max(0, this.playerHp - 1);
+    this.addExplosion(this.player.x, this.player.y, 8, 0xff5555);
+    this.updateHealthBar();
+    if (this.playerHp <= 0) {
+      this.player.disableBody(true, true);
+      this.time.delayedCall(1200, () => this.scene.restart());
     }
   }
 
@@ -492,6 +561,19 @@ export default class GameScene extends Phaser.Scene {
     box.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(color).color);
     box.setPosition(textObj.x - padding * 0.5, textObj.y - padding * 0.5);
     box.setSize(textObj.displayWidth + padding, textObj.displayHeight + padding);
+  }
+
+  createBlobPoints(size) {
+    const points = [];
+    const segments = 6 + Math.floor(Math.random() * 4);
+    const baseRadius = size * 0.5;
+    for (let i = 0; i < segments; i += 1) {
+      const angle = (Math.PI * 2 * i) / segments;
+      const jitter = Phaser.Math.FloatBetween(0.5, 1.15);
+      const r = baseRadius * jitter;
+      points.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+    }
+    return points;
   }
 
   drawDebugHitboxes() {
