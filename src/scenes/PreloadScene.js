@@ -2,6 +2,15 @@ export default class PreloadScene extends Phaser.Scene {
   constructor() { super('Preload'); }
 
   preload() {
+    const { width, height } = this.scale;
+    this.cameras.main.setBackgroundColor('#0b1224');
+    this.loadingText = this.add.text(width / 2, height / 2, 'Loading', {
+      fontFamily: 'Arial',
+      fontSize: 42,
+      fontStyle: 'bold',
+      color: '#c6d6ff'
+    }).setOrigin(0.5);
+
     this.load.audio('menuMusic', 'assets/music/menu.mp3');
     this.load.audio('click', 'assets/sounds/click1.mp3');
     this.load.audio('introSound', 'assets/narrations/intro.mp3');
@@ -16,7 +25,7 @@ export default class PreloadScene extends Phaser.Scene {
   }
 
   create() {
-    if (window.__INTRO_SHOWN) this.scene.start('Menu');
-    else this.scene.start('Intro');
+    const nextScene = window.__INTRO_SHOWN ? 'Menu' : 'Intro';
+    this.time.delayedCall(50, () => this.scene.start(nextScene));
   }
 }

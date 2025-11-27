@@ -1,3 +1,15 @@
+const PRESS_ANY_KEY_PULSE_MS = 900;
+const PRESENTS_TEXT_TWEEN_MS = 1500;
+const INTRO_BG_FADE_IN_MS = 2000;
+const STUDIOS_TITLE_DELAY_MS = 600;
+const STUDIOS_TITLE_FADE_MS = 700;
+const CODE_QUARTET_FADE_OUT_MS = 1200;
+const BACK_OF_BEYOND_FADE_IN_MS = 1000;
+const DEMO_SUBTITLE_FADE_IN_MS = 800;
+const CREDITS_SEQUENCE_FADE_OUT_MS = 900;
+const CREDITS_NAME_FADE_IN_MS = 700;
+const CREDITS_NAME_FADE_OUT_MS = 700;
+
 export default class IntroScene extends Phaser.Scene {
   constructor() { super('Intro'); }
 
@@ -6,15 +18,16 @@ export default class IntroScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#02030a');
     this.cameras.main.fadeIn(600, 0, 0, 0);
 
-    this.add.image(width / 2, height / 2, 'introBg')
+    this.introBg = this.add.image(width / 2, height / 2, 'introBg')
       .setDisplaySize(width, height)
-      .setAlpha(0.35)
+      .setAlpha(0)
       .setDepth(-1);
 
     this.activeTimers = [];
     this.activeTweens = [];
     this.introFlowStarted = false;
     this.skipReady = false;
+    this.waitingForStart = true;
 
     this.introTitle = this.add.text(width / 2, height / 2 - 40, 'Code Quartet Studios', {
       fontFamily: 'Arial',
@@ -22,6 +35,7 @@ export default class IntroScene extends Phaser.Scene {
       fontStyle: 'bold',
       color: '#7de8ff'
     }).setOrigin(0.5).setShadow(0, 0, '#00c2ff', 18, true, true);
+    this.introTitle.setAlpha(0);
 
     this.introSubtitle = this.add.text(width / 2, height / 2 + 16, 'bemutatja', {
       fontFamily: 'Arial',
@@ -32,7 +46,7 @@ export default class IntroScene extends Phaser.Scene {
     this.introSubtitleTween = this.tweens.add({
       targets: this.introSubtitle,
       alpha: 1,
-      duration: 900,
+      duration: PRESENTS_TEXT_TWEEN_MS,
       ease: 'Sine.easeInOut',
       yoyo: true,
       repeat: 1,
@@ -40,35 +54,48 @@ export default class IntroScene extends Phaser.Scene {
     });
     this.activeTweens.push(this.introSubtitleTween);
 
+    this.startPrompt = this.add.text(width / 2, height - 80, 'Press any key to start', {
+      fontFamily: 'Arial',
+      fontSize: 24,
+      color: '#9fd6ff'
+    }).setOrigin(0.5);
+    this.startPromptTween = this.tweens.add({
+      targets: this.startPrompt,
+      alpha: { from: 0.35, to: 1 },
+      duration: PRESS_ANY_KEY_PULSE_MS,
+      ease: 'Sine.easeInOut',
+      yoyo: true,
+      repeat: -1
+    });
+    this.activeTweens.push(this.startPromptTween);
+
     this.finished = false;
-    this.playIntroSound();
-    this.enableSkipOrUnlock();
+    this.setupIntroSound();
+    this.enableStartThenSkip();
 
     this.showOutbackTimer = this.registerTimer(this.time.delayedCall(5000, () => this.showOutbackTitle()));
     if (this.showOutbackTimer) this.showOutbackTimer.paused = true;
   }
 
-  playIntroSound() {
+  setupIntroSound() {
     this.introSound = this.sound.get('introSound') || this.sound.add('introSound', {
       volume: 0.9
     });
 
-    const startFlowAndPlay = () => {
-      if (this.finished) return;
-      this.startIntroFlow();
-      if (this.introSound?.isPlaying) return;
-      this.introSound?.play();
+    this.forceResumeAndPlay = () => {
+      if (this.finished) return false;
+      try {
+        if (this.sound?.context?.state === 'suspended') {
+          this.sound.context.resume().catch(() => {});
+        }
+        if (!this.introSound?.isPlaying) {
+          this.introSound?.play();
+        }
+        return !!this.introSound?.isPlaying;
+      } catch (e) {
+        return false;
+      }
     };
-
-    if (this.introSound) {
-      this.introSound.once(Phaser.Sound.Events.PLAY, () => this.startIntroFlow());
-    }
-
-    if (this.sound.locked) {
-      this.sound.once(Phaser.Sound.Events.UNLOCKED, startFlowAndPlay);
-    } else {
-      startFlowAndPlay();
-    }
 
     if (this.introSound) {
       this.introSound.once('complete', () => this.finishIntro());
@@ -78,10 +105,42 @@ export default class IntroScene extends Phaser.Scene {
     }
   }
 
+  startIntroPlayback() {
+    if (this.finished) return;
+    if (this.sound.locked) {
+      this.sound.once(Phaser.Sound.Events.UNLOCKED, () => this.forceResumeAndPlay());
+      this.forceResumeAndPlay();
+    } else {
+      this.forceResumeAndPlay();
+    }
+
+    if (!this.audioRetryTimer || this.audioRetryTimer.hasDispatched) {
+      // Retry a few times after user interaction in case play was still blocked.
+      this.audioRetryTimer = this.registerTimer(this.time.addEvent({
+        delay: 500,
+        repeat: 6,
+        callback: () => {
+          if (this.finished || this.waitingForStart || this.introSound?.isPlaying) {
+            this.audioRetryTimer?.remove(false);
+            return;
+          }
+          this.forceResumeAndPlay();
+        }
+      }));
+    }
+  }
+
   startIntroFlow() {
     if (this.finished || this.introFlowStarted) return;
     this.introFlowStarted = true;
     this.skipReady = true;
+    const titleFade = this.tweens.add({
+      targets: this.introTitle,
+      alpha: 1,
+      duration: STUDIOS_TITLE_FADE_MS,
+      ease: 'Sine.easeOut'
+    });
+    this.activeTweens.push(titleFade);
     if (this.introSubtitleTween) {
       this.introSubtitleTween.restart();
       this.introSubtitleTween.play();
@@ -89,27 +148,45 @@ export default class IntroScene extends Phaser.Scene {
     if (this.showOutbackTimer) this.showOutbackTimer.paused = false;
   }
 
-  enableSkipOrUnlock() {
-    this.handleInteraction = () => {
-      if (this.finished) return;
+  enableStartThenSkip() {
+    this.startHandler = () => {
+      if (this.finished || !this.waitingForStart) return;
+      this.waitingForStart = false;
+      if (this.startPromptTween) this.startPromptTween.stop();
+      this.startPrompt?.destroy();
+      const bgFade = this.tweens.add({
+        targets: this.introBg,
+        alpha: 0.35,
+        duration: INTRO_BG_FADE_IN_MS,
+        ease: 'Sine.easeOut',
+        onComplete: () => {
+          const pauseBeforeTitle = this.registerTimer(this.time.delayedCall(STUDIOS_TITLE_DELAY_MS, () => {
+            this.startIntroFlow();
+            this.startIntroPlayback();
+          }));
+          if (pauseBeforeTitle) this.activeTimers.push(pauseBeforeTitle);
+        }
+      });
+      this.activeTweens.push(bgFade);
+    };
+
+    this.skipHandler = () => {
+      if (this.finished || this.waitingForStart) return;
       if (!this.skipReady || this.sound.locked || !this.introSound?.isPlaying) {
-        if (this.sound?.context?.state === 'suspended') {
-          this.sound.context.resume();
-        }
-        if (!this.introSound?.isPlaying) {
-          this.introSound?.play();
-        }
+        this.startIntroPlayback();
         return;
       }
       this.introSound?.stop();
       this.finishIntro();
     };
 
-    this.input.keyboard.on('keydown-SPACE', this.handleInteraction);
-    this.input.on('pointerdown', this.handleInteraction);
+    this.input.keyboard.on('keydown', this.startHandler);
+    this.input.keyboard.on('keydown-SPACE', this.skipHandler);
+    this.input.on('pointerdown', this.startHandler);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.input.keyboard.off('keydown-SPACE', this.handleInteraction);
-      this.input.off('pointerdown', this.handleInteraction);
+      this.input.keyboard.off('keydown', this.startHandler);
+      this.input.keyboard.off('keydown-SPACE', this.skipHandler);
+      this.input.off('pointerdown', this.startHandler);
     });
   }
 
@@ -118,7 +195,7 @@ export default class IntroScene extends Phaser.Scene {
     const fadeOut = this.tweens.add({
       targets: [this.introTitle, this.introSubtitle],
       alpha: 0,
-      duration: 1200,
+      duration: CODE_QUARTET_FADE_OUT_MS,
       ease: 'Sine.easeInOut',
       onComplete: () => this.displayOutback()
     });
@@ -127,9 +204,9 @@ export default class IntroScene extends Phaser.Scene {
 
   displayOutback() {
     const { width, height } = this.scale;
-    this.outbackTitle = this.add.text(width / 2, height / 2 - 40, '', {
+    this.outbackTitle = this.add.text(width / 2, height / 2 - 60, '', {
       fontFamily: 'Arial',
-      fontSize: 96,
+      fontSize: 98,
       fontStyle: 'bold',
       color: '#4cb6ff'
     }).setOrigin(0.5);
@@ -145,16 +222,16 @@ export default class IntroScene extends Phaser.Scene {
     const titleTween = this.tweens.add({
       targets: this.outbackTitle,
       alpha: 1,
-      duration: 1000,
+      duration: BACK_OF_BEYOND_FADE_IN_MS,
       ease: 'Sine.easeInOut'
     });
     this.activeTweens.push(titleTween);
 
-    this.typewriteText(this.outbackTitle, "BEHIND GOD'S BACK", 80, () => {
+    this.typewriteText(this.outbackTitle, 'T H E BACK of BEYOND', 80, () => {
       const subTween = this.tweens.add({
         targets: this.outbackSubtitle,
         alpha: 1,
-        duration: 800,
+        duration: DEMO_SUBTITLE_FADE_IN_MS,
         ease: 'Sine.easeInOut'
       });
       this.activeTweens.push(subTween);
@@ -171,7 +248,7 @@ export default class IntroScene extends Phaser.Scene {
     const fade = this.tweens.add({
       targets: toFade,
       alpha: 0,
-      duration: 900,
+      duration: CREDITS_SEQUENCE_FADE_OUT_MS,
       ease: 'Sine.easeInOut',
       onComplete: () => {
         toFade.forEach((t) => t?.destroy());
@@ -198,7 +275,7 @@ export default class IntroScene extends Phaser.Scene {
     const fadeIn = this.tweens.add({
       targets: this.creditText,
       alpha: 1,
-      duration: 700,
+      duration: CREDITS_NAME_FADE_IN_MS,
       ease: 'Sine.easeInOut'
     });
     this.activeTweens.push(fadeIn);
@@ -208,7 +285,7 @@ export default class IntroScene extends Phaser.Scene {
       const fadeOut = this.tweens.add({
         targets: this.creditText,
         alpha: 0,
-        duration: 700,
+        duration: CREDITS_NAME_FADE_OUT_MS,
         ease: 'Sine.easeInOut',
         onComplete: () => {
           this.creditText?.destroy();
