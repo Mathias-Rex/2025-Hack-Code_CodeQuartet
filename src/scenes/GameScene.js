@@ -1,10 +1,14 @@
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super('Game');
-    this.backgrounds = [];
-    this.bgScale = 1;
-    this.bgHeight = 0;
-    this.scrollSpeed = 140; // px per second
+    this.stars = [];
+    this.scrollSpeed = 140; // px per second (used by starfield)
+    this.starLayers = [
+      { countFactor: 0.06, speed: 40, sizeRange: [1, 1.5], alpha: 0.35 },
+      { countFactor: 0.08, speed: 70, sizeRange: [1, 2], alpha: 0.45 },
+      { countFactor: 0.1, speed: 110, sizeRange: [1.5, 2.5], alpha: 0.6 },
+      { countFactor: 0.12, speed: 160, sizeRange: [2, 3], alpha: 0.8 }
+    ];
     this.playerSpeed = 320;
     this.fireDelay = 150; // ms between player shots
     this.nextShotAt = 0;
@@ -12,14 +16,14 @@ export default class GameScene extends Phaser.Scene {
     this.maxActiveEnemies = 10;
     this.enemySpawnDelay = 900;
     this.enemyMaxHp = 5;
-		this.hitboxes = {
-			playerRadiusFactor: 0.32,
-			enemyWidthFactor: 0.5,
-			enemyHeightFactor: 0.5,
-			bulletWidthFactor: 1,
-			bulletHeightFactor: 1
-		};
-		this.debug = !!window.__DEBUG__;
+    this.hitboxes = {
+      playerRadiusFactor: 4,
+      enemyRadiusFactor: 5,
+      bulletWidthFactor: 1,
+      bulletHeightFactor: 1
+    };
+    this.debug = !!window.__DEBUG__;
+    console.log(this.debug)
   }
 
   preload() {
@@ -32,7 +36,7 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.fadeIn(400, 0, 0, 0);
     this.physics.world.setBounds(0, 0, this.scale.width, this.scale.height);
 
-    this.createBackground();
+    this.createStarfield();
     this.createBulletTexture('playerBullet', 4, 18, 0x7cf4ff);
     this.createBulletTexture('enemyBullet', 6, 10, 0xff8a7a);
 
@@ -60,7 +64,8 @@ export default class GameScene extends Phaser.Scene {
     }).setDepth(10).setOrigin(0, 0);
 
     this.scale.on('resize', this.handleResize, this);
-    if (this.debug) {
+    this.debug = !!window.__DEBUG__;
+    if (this.debug && !this.debugGfx) {
       this.debugGfx = this.add.graphics({ x: 0, y: 0 }).setDepth(50);
     }
 
@@ -72,44 +77,55 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    if (!this.player.active) return;
-
-    this.scrollBackground(delta);
-    this.handlePlayerMovement(delta);
-    this.handleShooting(time);
+    this.updateStarfield(time, delta);
+    if (this.player?.active) {
+      this.handlePlayerMovement(delta);
+      this.handleShooting(time);
+    }
     this.cleanupEntities();
     if (this.debug) this.drawDebugHitboxes();
   }
 
-  createBackground() {
+  createStarfield() {
     const { width, height } = this.scale;
-    const source = this.textures.get('gameBg').getSourceImage();
-    this.bgScale = Math.max(width / source.width, height / source.height);
-    this.bgHeight = source.height * this.bgScale;
-
-    const centerX = width / 2;
-    const bg1 = this.add.image(centerX, height / 2, 'gameBg').setScale(this.bgScale).setDepth(-5);
-    const bg2 = this.add.image(centerX, height / 2 - this.bgHeight, 'gameBg')
-      .setScale(this.bgScale)
-      .setDepth(-5)
-      .setRotation(Math.PI);
-
-    this.backgrounds = [bg1, bg2];
+    this.starGraphics = this.add.graphics().setDepth(-5);
+    this.stars = [];
+    const area = width * height / 10000;
+    this.starLayers.forEach((layer, idx) => {
+      const count = Math.max(8, Math.floor(area * layer.countFactor));
+      for (let i = 0; i < count; i += 1) {
+        const size = Phaser.Math.FloatBetween(...layer.sizeRange);
+        this.stars.push({
+          x: Phaser.Math.FloatBetween(0, width),
+          y: Phaser.Math.FloatBetween(0, height),
+          size,
+          speed: layer.speed,
+          alphaBase: layer.alpha,
+          phase: Phaser.Math.FloatBetween(0, Math.PI * 2),
+          layer: idx
+        });
+      }
+    });
   }
 
-  scrollBackground(delta) {
-    const { height, width } = this.scale;
-    const move = (this.scrollSpeed * delta) / 1000;
-    for (const bg of this.backgrounds) {
-      bg.y += move;
-      bg.x = width / 2;
-      bg.setScale(this.bgScale);
-      if (bg.y - this.bgHeight / 2 >= height) {
-        const topY = Math.min(...this.backgrounds.map((b) => b.y));
-        bg.y = topY - this.bgHeight;
-        bg.rotation = bg.rotation === 0 ? Math.PI : 0; // alternate normal/rotated
+  updateStarfield(time, delta) {
+    if (!this.starGraphics) return;
+    const { width, height } = this.scale;
+    const t = time / 1000;
+    const flickerFreq = 0.9;
+    this.starGraphics.clear();
+    this.stars.forEach((star) => {
+      star.y += (star.speed * delta) / 1000;
+      if (star.y > height) {
+        star.y -= height;
+        star.x = Phaser.Math.FloatBetween(0, width);
       }
-    }
+      const flicker = 0.8 + 0.2 * Math.sin(t * flickerFreq + star.phase);
+      const alpha = Phaser.Math.Clamp(star.alphaBase * flicker, 0, 1);
+      const color = 0xffffff;
+      this.starGraphics.fillStyle(color, alpha);
+      this.starGraphics.fillCircle(star.x, star.y, star.size);
+    });
   }
 
   createPlayer() {
@@ -121,7 +137,11 @@ export default class GameScene extends Phaser.Scene {
     sprite.setCollideWorldBounds(true);
     sprite.setDamping(true).setDrag(0.85).setMaxVelocity(this.playerSpeed);
     const hitboxRadius = (sprite.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
-    sprite.body.setCircle(hitboxRadius, sprite.displayWidth / 2 - hitboxRadius, sprite.displayHeight / 2 - hitboxRadius);
+    sprite.body.setCircle(hitboxRadius);
+    sprite.body.setOffset(
+      sprite.displayOriginX - hitboxRadius,
+      sprite.displayOriginY - hitboxRadius
+    );
     return sprite;
   }
 
@@ -181,9 +201,12 @@ export default class GameScene extends Phaser.Scene {
     enemy.setScale(scale);
     enemy.setDepth(4);
     enemy.setVelocity(0, Phaser.Math.Between(this.enemySpeed.min, this.enemySpeed.max));
-    const bodyW = enemy.displayWidth * this.hitboxes.enemyWidthFactor;
-    const bodyH = enemy.displayHeight * this.hitboxes.enemyHeightFactor;
-    enemy.body.setSize(bodyW, bodyH, true); // center the hitbox on the sprite
+    const enemyRadius = (enemy.displayWidth * this.hitboxes.enemyRadiusFactor) / 2;
+    enemy.body.setCircle(enemyRadius);
+    enemy.body.setOffset(
+      enemy.displayOriginX - enemyRadius,
+      enemy.displayOriginY - enemyRadius
+    );
     enemy.hp = this.enemyMaxHp;
   }
 
@@ -242,13 +265,8 @@ export default class GameScene extends Phaser.Scene {
   handleResize(gameSize) {
     const { width, height } = gameSize;
     this.physics.world.setBounds(0, 0, width, height);
-    const source = this.textures.get('gameBg').getSourceImage();
-    this.bgScale = Math.max(width / source.width, height / source.height);
-    this.bgHeight = source.height * this.bgScale;
-    if (this.backgrounds.length === 2) {
-      this.backgrounds[0].setScale(this.bgScale).setPosition(width / 2, height / 2);
-      this.backgrounds[1].setScale(this.bgScale).setPosition(width / 2, height / 2 - this.bgHeight);
-    }
+    // rebuild starfield to fit new size
+    this.createStarfield();
     if (this.player.active) {
       this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, width - this.player.displayWidth / 2);
       this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, height - this.player.displayHeight / 2);
@@ -271,11 +289,16 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // Enemy boxes
+    // Enemy hitboxes (circles)
     this.enemies.children.each((enemy) => {
       if (!enemy.active || !enemy.body) return;
       this.debugGfx.lineStyle(2, 0xff0000, 0.8);
-      this.debugGfx.strokeRect(enemy.body.x, enemy.body.y, enemy.body.width, enemy.body.height);
+      if (enemy.body.isCircle) {
+        const r = enemy.body.halfWidth;
+        this.debugGfx.strokeCircle(enemy.body.x + r, enemy.body.y + r, r);
+      } else {
+        this.debugGfx.strokeRect(enemy.body.x, enemy.body.y, enemy.body.width, enemy.body.height);
+      }
     });
 
     // Player bullets
