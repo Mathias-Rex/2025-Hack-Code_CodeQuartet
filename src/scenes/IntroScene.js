@@ -13,6 +13,8 @@ export default class IntroScene extends Phaser.Scene {
 
     this.activeTimers = [];
     this.activeTweens = [];
+    this.introFlowStarted = false;
+    this.skipReady = false;
 
     this.introTitle = this.add.text(width / 2, height / 2 - 40, 'Code Quartet Studios', {
       fontFamily: 'Arial',
@@ -27,20 +29,23 @@ export default class IntroScene extends Phaser.Scene {
       color: '#c6d6ff'
     }).setOrigin(0.5);
     this.introSubtitle.setAlpha(0);
-    this.tweens.add({
+    this.introSubtitleTween = this.tweens.add({
       targets: this.introSubtitle,
       alpha: 1,
       duration: 900,
       ease: 'Sine.easeInOut',
       yoyo: true,
-      repeat: 1
+      repeat: 1,
+      paused: true
     });
+    this.activeTweens.push(this.introSubtitleTween);
 
     this.finished = false;
     this.playIntroSound();
-    this.enableSkipWithSpace();
+    this.enableSkipOrUnlock();
 
-    this.registerTimer(this.time.delayedCall(5000, () => this.showOutbackTitle()));
+    this.showOutbackTimer = this.registerTimer(this.time.delayedCall(5000, () => this.showOutbackTitle()));
+    if (this.showOutbackTimer) this.showOutbackTimer.paused = true;
   }
 
   playIntroSound() {
@@ -48,29 +53,63 @@ export default class IntroScene extends Phaser.Scene {
       volume: 0.9
     });
 
-    const triggerPlay = () => {
+    const startFlowAndPlay = () => {
+      if (this.finished) return;
+      this.startIntroFlow();
       if (this.introSound?.isPlaying) return;
       this.introSound?.play();
     };
 
+    if (this.introSound) {
+      this.introSound.once(Phaser.Sound.Events.PLAY, () => this.startIntroFlow());
+    }
+
     if (this.sound.locked) {
-      this.sound.once(Phaser.Sound.Events.UNLOCKED, triggerPlay);
+      this.sound.once(Phaser.Sound.Events.UNLOCKED, startFlowAndPlay);
     } else {
-      triggerPlay();
+      startFlowAndPlay();
     }
 
     if (this.introSound) {
       this.introSound.once('complete', () => this.finishIntro());
     } else {
+      this.startIntroFlow();
       this.registerTimer(this.time.delayedCall(1000, () => this.finishIntro()));
     }
   }
 
-  enableSkipWithSpace() {
-    this.input.keyboard.once('keydown-SPACE', () => {
+  startIntroFlow() {
+    if (this.finished || this.introFlowStarted) return;
+    this.introFlowStarted = true;
+    this.skipReady = true;
+    if (this.introSubtitleTween) {
+      this.introSubtitleTween.restart();
+      this.introSubtitleTween.play();
+    }
+    if (this.showOutbackTimer) this.showOutbackTimer.paused = false;
+  }
+
+  enableSkipOrUnlock() {
+    this.handleInteraction = () => {
       if (this.finished) return;
+      if (!this.skipReady || this.sound.locked || !this.introSound?.isPlaying) {
+        if (this.sound?.context?.state === 'suspended') {
+          this.sound.context.resume();
+        }
+        if (!this.introSound?.isPlaying) {
+          this.introSound?.play();
+        }
+        return;
+      }
       this.introSound?.stop();
       this.finishIntro();
+    };
+
+    this.input.keyboard.on('keydown-SPACE', this.handleInteraction);
+    this.input.on('pointerdown', this.handleInteraction);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.keyboard.off('keydown-SPACE', this.handleInteraction);
+      this.input.off('pointerdown', this.handleInteraction);
     });
   }
 
