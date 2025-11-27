@@ -1,6 +1,9 @@
 export default class BootScene extends Phaser.Scene {
   constructor() { super('Boot'); }
   create() {
+    if (window.__DEBUG__ === undefined) {
+      window.__DEBUG__ = true;
+    }
     if (!window.__GAME_SETTINGS__) {
       window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true, musicVolume: 0.6 };
     } else {

@@ -19,13 +19,15 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image('menuBg', 'assets/images/hangar.png');
     this.load.image('introBg', 'assets/images/intro_background.jpg');
     this.load.image('gameBg', 'assets/images/background.png');
-    this.load.image('enemyShip1', 'assets/images/enemyship1.png');
+    this.load.image('enemyShip', 'assets/sprites/enemyship1.png');
+    this.load.image('enemyShip2', 'assets/sprites/enemyship2.png');
+    this.load.image('enemyShip3', 'assets/sprites/enemyship3.png');
     this.load.image('tycoonBg', 'assets/images/tycoon.png');
 
   }
 
   create() {
-    const nextScene = window.__INTRO_SHOWN ? 'Menu' : 'Intro';
+    const nextScene = window.__DEBUG__ ? 'Game' : (window.__INTRO_SHOWN ? 'Menu' : 'Intro');
     this.time.delayedCall(50, () => this.scene.start(nextScene));
   }
 }
