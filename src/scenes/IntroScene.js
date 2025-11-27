@@ -336,7 +336,8 @@ export default class IntroScene extends Phaser.Scene {
     window.__INTRO_SHOWN = true;
     this.introSound?.stop();
     this.clearTimersAndTweens();
-    this.fadeToScene('Menu');
+    const target = window.__DEBUG__ ? 'Game' : 'Menu';
+    this.fadeToScene(target);
   }
 
   fadeToScene(targetScene, duration = 650) {

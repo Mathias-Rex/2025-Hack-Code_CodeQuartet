@@ -25,7 +25,7 @@ export default class PreloadScene extends Phaser.Scene {
   }
 
   create() {
-    const nextScene = window.__INTRO_SHOWN ? 'Menu' : 'Intro';
+    const nextScene = window.__DEBUG__ ? 'Intro' : (window.__INTRO_SHOWN ? 'Menu' : 'Intro');
     this.time.delayedCall(50, () => this.scene.start(nextScene));
   }
 }
