@@ -19,6 +19,7 @@ class Shield {
   }
 
   destroy() {
+    if (this.enemy?.setData) this.enemy.setData('shield', null);
     this.graphics?.destroy();
     this.graphics = null;
     this.enemy = null;
@@ -209,6 +210,10 @@ export default class GameScene extends Phaser.Scene {
       down: Phaser.Input.Keyboard.KeyCodes.S,
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
+      up2: Phaser.Input.Keyboard.KeyCodes.UP,
+      down2: Phaser.Input.Keyboard.KeyCodes.DOWN,
+      left2: Phaser.Input.Keyboard.KeyCodes.LEFT,
+      right2: Phaser.Input.Keyboard.KeyCodes.RIGHT,
       shoot: Phaser.Input.Keyboard.KeyCodes.SPACE,
       reload: Phaser.Input.Keyboard.KeyCodes.R,
       weapon1: Phaser.Input.Keyboard.KeyCodes.Q,
@@ -528,10 +533,14 @@ export default class GameScene extends Phaser.Scene {
     const move = (this.playerSpeed * delta) / 1000;
     let vx = 0;
     let vy = 0;
-    if (this.keys.left.isDown) vx -= move;
-    if (this.keys.right.isDown) vx += move;
-    if (this.keys.up.isDown) vy -= move;
-    if (this.keys.down.isDown) vy += move;
+    const leftDown = this.keys.left.isDown || this.keys.left2.isDown;
+    const rightDown = this.keys.right.isDown || this.keys.right2.isDown;
+    const upDown = this.keys.up.isDown || this.keys.up2.isDown;
+    const downDown = this.keys.down.isDown || this.keys.down2.isDown;
+    if (leftDown) vx -= move;
+    if (rightDown) vx += move;
+    if (upDown) vy -= move;
+    if (downDown) vy += move;
     if (Phaser.Input.Keyboard.JustDown(this.keys.reload)) {
       this.beginReload();
     }
@@ -543,14 +552,14 @@ export default class GameScene extends Phaser.Scene {
 
     // Tilt ship based on horizontal input
     let targetAngle = 0;
-    if (this.keys.left.isDown && !this.keys.right.isDown) targetAngle = -45;
-    if (this.keys.right.isDown && !this.keys.left.isDown) targetAngle = 45;
+    if (leftDown && !rightDown) targetAngle = -45;
+    if (rightDown && !leftDown) targetAngle = 45;
     this.player.setAngle(Phaser.Math.Linear(this.player.angle, targetAngle, this.tiltLerp));
 
     // Adjust starfield speed with W/S
     let targetSpeedMul = 1;
-    if (this.keys.up.isDown && !this.keys.down.isDown) targetSpeedMul = 1.8;
-    if (this.keys.down.isDown && !this.keys.up.isDown) targetSpeedMul = 0.5;
+    if (upDown && !downDown) targetSpeedMul = 1.8;
+    if (downDown && !upDown) targetSpeedMul = 0.5;
 
     // ha eléri a mozgástartomány tetejét/alját, gyorsítson vagy lassítson a starfield a régi terv szerint
     const hitTop = clampedY <= minY + 0.01;
@@ -742,7 +751,16 @@ export default class GameScene extends Phaser.Scene {
 
     const typeKey = enemy.getData('typeKey') || enemy.texture?.key;
     const playerDamage = typeKey === 'enemyShip3' ? 2 : 1;
-    this.damagePlayer(playerDamage);
+    const shield = this.playerShield;
+    if (shield?.hp > 0 && shield.graphics) {
+      shield.takeDamage(playerDamage);
+      this.addExplosion(player.x, player.y, 12, 0x4cc3ff);
+      if (!shield.graphics || shield.hp <= 0) {
+        this.detachPlayerShield();
+      }
+    } else {
+      this.damagePlayer(playerDamage);
+    }
 
     const remainingHp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
     enemy.hp = remainingHp;
@@ -761,6 +779,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   handlePlayerHitByBullet(player, bullet) {
+    const shield = this.playerShield;
+    if (shield?.hp > 0 && shield.graphics && shield.block(bullet)) {
+      bullet.disableBody(true, true);
+      if (!shield.graphics || shield.hp <= 0) {
+        this.detachPlayerShield();
+      }
+      return;
+    }
     this.stopBulletTrail(bullet);
     bullet.disableBody(true, true);
     this.damagePlayer();
@@ -854,15 +880,26 @@ export default class GameScene extends Phaser.Scene {
 
   detachPlayerShield() {
     if (!this.playerShield) return;
-    this.playerShield.destroy();
+    const shield = this.playerShield;
+    shield.destroy();
     this.playerShield = null;
-    this.shields = this.shields.filter((s) => s !== this.playerShield);
+    this.shields = this.shields.filter((s) => s !== shield);
     this.player?.setData('shield', null);
   }
 
   updateShields() {
     if (!this.shields?.length) return;
+    this.handleShieldBulletCollisions();
     this.shields = this.shields.filter((shield) => {
+      const alive = shield.graphics && shield.enemy?.active && shield.hp > 0;
+      if (!alive) {
+        shield.destroy();
+        if (shield.isPlayerShield && this.playerShield === shield) {
+          this.playerShield = null;
+          this.player?.setData('shield', null);
+        }
+        return false;
+      }
       if (shield.isPlayerShield) {
         const angle = Phaser.Math.DegToRad(this.player.angle) + Math.PI + Math.PI / 2;
         shield.lastAngle = angle;
@@ -870,7 +907,26 @@ export default class GameScene extends Phaser.Scene {
       } else {
         shield.update(this.player);
       }
-      return !!shield.graphics;
+      return true;
+    });
+  }
+
+  handleShieldBulletCollisions() {
+    this.shields.forEach((shield) => {
+      if (!shield?.graphics || !shield.enemy?.active || shield.hp <= 0) return;
+      const bulletGroup = shield.isPlayerShield ? this.enemyBullets : this.playerBullets;
+      if (!bulletGroup) return;
+      bulletGroup.children.each((bullet) => {
+        if (!bullet?.active) return;
+        if (shield.block(bullet)) {
+          if (!shield.isPlayerShield) this.stopBulletTrail(bullet);
+          bullet.disableBody(true, true);
+          if (shield.isPlayerShield && (!shield.graphics || shield.hp <= 0)) {
+            this.playerShield = null;
+            this.player?.setData('shield', null);
+          }
+        }
+      });
     });
   }
 

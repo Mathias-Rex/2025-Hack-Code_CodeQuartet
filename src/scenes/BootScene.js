@@ -2,7 +2,7 @@ export default class BootScene extends Phaser.Scene {
   constructor() { super('Boot'); }
   create() {
     if (window.__DEBUG__ === undefined) {
-      window.__DEBUG__ = true;
+      window.__DEBUG__ = false
     }
     if (window.__DEBUG__ === true) console.warn('DEBUG MODE IS ON!!!');
 
