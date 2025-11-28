@@ -88,16 +88,22 @@ export default class GameScene extends Phaser.Scene {
     this.fireDelay = 150; // ms between player shots
     this.nextShotAt = 0;
     this.maxActiveEnemies = 2;
+    this.enemyShip2Count = 0;
+    this.lastShip3SpawnAt = 0;
     this.enemySpawnDelay = 900;
     this.enemyMaxHp = 3;
     this.enemyTypes = [
-      { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 3, scaleMul: 1, weight: 6 },   // leggyakoribb
-      { key: 'enemyShip2', speed: { min: 190, max: 280 }, hp: 1, scaleMul: 1, weight: 4 }, // gyakoribb spawn, gyorsabb
-      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1, hitboxFactor: 2.5 }    // legritkább, kisebb hitbox
+      { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 3, scaleMul: 1, weight: 6, hitboxFactor: 5 },    // leggyakoribb
+      { key: 'enemyShip2', speed: { min: 170, max: 250 }, hp: 1, scaleMul: 1, weight: 4, hitboxFactor: 5, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
+      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1, hitboxFactor: 2.5 }   // legritkább, kisebb hitbox
     ];
-    this.maxAmmo = 15;
+    this.maxAmmoBlue = 15;
+    this.maxAmmoRed = 30;
+    this.maxAmmo = this.maxAmmoBlue;
     this.ammo = this.maxAmmo;
     this.reloadTime = 3000;
+    this.reloadTimeAlt = 2000;
+    this.redBeamLength = 500;
     this.reloading = false;
     this.playerMaxHp = 5;
     this.playerHp = this.playerMaxHp;
@@ -125,10 +131,14 @@ export default class GameScene extends Phaser.Scene {
       bulletHeightFactor: 1
     };
     this.shields = [];
+    this.gearPickups = null;
+    this.weaponIconBlue = null;
+    this.weaponIconRed = null;
+    this.beamSprite = null;
     this.starSpeedMultiplier = 1;
     this.starSpeedLerp = 0.08;
     this.debug = !!window.__DEBUG__;
-    console.log(this.debug)
+    this.currentWeapon = 'blue';
   }
 
   preload() {
@@ -160,21 +170,26 @@ export default class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.pauseSettingsVisible = false;
     this.shields = [];
+    this.enemyShip2Count = 0;
 
     this.createStarfield();
     this.createBulletTexture('playerBullet', 4, 18, 0x7cf4ff);
     this.createBulletTexture('enemyBullet', 5, 12, 0xff8a7a);
+    this.createBulletTexture('playerBeam', 4, 18, 0xff4d4d);
+    this.createGearTexture('gearPickup');
 
     this.player = this.createPlayer();
     this.playerBaseY = this.player.y;
     this.playerBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.enemies = this.physics.add.group({ classType: Phaser.Physics.Arcade.Sprite, maxSize: 30 });
+    this.gearPickups = this.physics.add.staticGroup();
 
     this.physics.add.overlap(this.playerBullets, this.enemies, this.handleEnemyHit, null, this);
     this.physics.add.overlap(this.player, this.enemies, this.handlePlayerHit, null, this);
     this.physics.add.overlap(this.enemyBullets, this.player, this.handlePlayerHitByBullet, null, this);
-    this.physics.add.collider(this.enemies, this.enemies);
+    this.physics.add.overlap(this.enemies, this.enemies, this.resolveEnemyOverlap, null, this);
+    this.physics.add.overlap(this.player, this.gearPickups, this.handleGearPickup, null, this);
     this.spawnWave(Phaser.Math.Between(1, this.maxActiveEnemies));
 
     this.keys = this.input.keyboard.addKeys({
@@ -184,6 +199,8 @@ export default class GameScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D,
       shoot: Phaser.Input.Keyboard.KeyCodes.SPACE,
       reload: Phaser.Input.Keyboard.KeyCodes.R,
+      weapon1: Phaser.Input.Keyboard.KeyCodes.Q,
+      weapon2: Phaser.Input.Keyboard.KeyCodes.E,
       pause: Phaser.Input.Keyboard.KeyCodes.ESC
     });
     this.keyEsc = this.keys.pause;
@@ -222,6 +239,7 @@ export default class GameScene extends Phaser.Scene {
     this.reloadEndTime = null;
 
     this.createHealthBar();
+    this.createWeaponIcons();
 
     this.scale.on('resize', this.handleResize, this);
     this.debug = !!window.__DEBUG__;
@@ -241,17 +259,67 @@ export default class GameScene extends Phaser.Scene {
     this.events.once('destroy', () => this.gameMusic?.stop());
   }
 
+  updateEnemyWave(time) {
+    const { width } = this.scale;
+    this.enemies.children.each((enemy) => {
+      if (!enemy.active) return;
+      const typeKey = enemy.getData('typeKey');
+      if (typeKey === 'enemyShip') {
+        enemy.rotation = 0; // ne forogjon az enemyShip1
+        return;
+      }
+      if (enemy.getData('typeKey') !== 'enemyShip2') return;
+      const baseX = enemy.getData('waveBaseX') ?? enemy.x;
+      const amp = enemy.getData('waveAmp') ?? 60;
+      const freq = enemy.getData('waveFreq') ?? 0.003;
+      const offset = enemy.getData('waveOffset') ?? 0;
+      const newX = baseX + Math.sin(time * freq + offset) * amp;
+      const halfW = enemy.displayWidth / 2;
+      const clamped = Phaser.Math.Clamp(newX, halfW + 10, width - halfW - 10);
+      enemy.setX(clamped);
+      const vx = amp * freq * Math.cos(time * freq + offset);
+      const vy = enemy.body?.velocity?.y ?? 0;
+      const speed = Math.hypot(vx, vy);
+      if (speed > 0.5) {
+        const targetAngle = Math.atan2(vy, vx) + Math.PI / 2 + Math.PI; // 180° flip, hogy a sprite alja előre nézzen
+        enemy.rotation = Phaser.Math.Angle.RotateTo(enemy.rotation, targetAngle, 0.04);
+      }
+    });
+  }
+
+  countActiveType(key) {
+    let count = 0;
+    this.enemies.children.each((enemy) => {
+      if (enemy.active && enemy.getData('typeKey') === key) count += 1;
+    });
+    return count;
+  }
+
   update(time, delta) {
     // keep debug flag in sync with global toggle
     const dbg = !!window.__DEBUG__;
-    if (dbg !== this.debug) {
-      this.debug = dbg;
-      if (this.debug && !this.debugGfx) {
-        this.debugGfx = this.add.graphics({ x: 0, y: 0 }).setDepth(50);
-      }
+    if (dbg !== this.debug) this.debug = dbg;
+    if (this.debug && !this.debugGfx) {
+      this.debugGfx = this.add.graphics({ x: 0, y: 0 }).setDepth(50);
     }
     if (this.debug) this.drawDebugHitboxes(); // debug overlay maradjon game over alatt is
     if (this.gameOver) return;
+    if (Phaser.Input.Keyboard.JustDown(this.keys.weapon1)) {
+      this.switchWeapon('blue');
+    }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.weapon2)) {
+      this.switchWeapon('red');
+    }
+    if (this.currentWeapon === 'red') {
+      if (!this.reloading && this.ammo < this.maxAmmoRed && !this.keys.shoot.isDown) {
+        this.beginReload();
+      }
+      if (this.keys.shoot.isDown && !this.reloading && this.ammo > 0) {
+        this.updateRedBeam();
+      } else if (this.beamSprite) {
+        this.beamSprite.setVisible(false);
+      }
+    }
     if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
       if (this.isPaused && this.pauseSettingsVisible) {
         this.hidePauseSettings();
@@ -266,6 +334,7 @@ export default class GameScene extends Phaser.Scene {
       this.handlePlayerMovement(delta);
       this.handleShooting(time);
     }
+    this.updateEnemyWave(time);
     this.updateShields();
     this.updateEnemyShooting(time);
     this.cleanupEntities();
@@ -345,6 +414,7 @@ export default class GameScene extends Phaser.Scene {
     const targetWidth = Math.min(120, width * 0.18);
     const scale = targetWidth / sprite.width;
     sprite.setScale(scale);
+    sprite.setDepth(6);
     sprite.setCollideWorldBounds(true);
     sprite.setDamping(true).setDrag(0.85).setMaxVelocity(this.playerSpeed);
     const hitboxRadius = (sprite.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
@@ -377,6 +447,35 @@ export default class GameScene extends Phaser.Scene {
     g.closePath();
     g.fillPath();
     g.generateTexture(key, w, h);
+    g.destroy();
+  }
+
+  createGearTexture(key) {
+    if (this.textures.exists(key)) return;
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    const size = 48;
+    g.clear();
+    g.fillStyle(0x9aa0ab, 1);
+    g.fillCircle(size / 2, size / 2, size / 2);
+    g.fillStyle(0xc4c8d0, 1);
+    const drawCog = (cx, cy, rOuter, teeth) => {
+      for (let i = 0; i < teeth; i += 1) {
+        const ang = (Math.PI * 2 * i) / teeth;
+        const x1 = cx + Math.cos(ang) * rOuter * 0.55;
+        const y1 = cy + Math.sin(ang) * rOuter * 0.55;
+        const x2 = cx + Math.cos(ang) * rOuter;
+        const y2 = cy + Math.sin(ang) * rOuter;
+        g.lineStyle(4, 0xc4c8d0, 1);
+        g.beginPath();
+        g.moveTo(x1, y1);
+        g.lineTo(x2, y2);
+        g.strokePath();
+      }
+    };
+    drawCog(size / 2 - 10, size / 2, size / 3, 6);
+    drawCog(size / 2 + 12, size / 2 - 6, size / 4, 7);
+    drawCog(size / 2 + 6, size / 2 + 12, size / 5, 5);
+    g.generateTexture(key, size, size);
     g.destroy();
   }
 
@@ -420,7 +519,17 @@ export default class GameScene extends Phaser.Scene {
   handleShooting(time) {
     if (!this.keys.shoot.isDown) return;
     if (time < this.nextShotAt) return;
-    if (this.reloading) return;
+    if (this.reloading && this.currentWeapon !== 'red') return;
+    if (this.reloading && this.currentWeapon === 'red') {
+      // azonnal befejezzük a töltést, hogy lőhessen
+      this.reloading = false;
+      this.reloadEndTime = null;
+      this.ammo = this.maxAmmoRed;
+      this.reloadText?.setVisible(false);
+      this.reloadBox?.setVisible(false);
+      this.updateAmmoText();
+      if (this.beamSprite) this.beamSprite.setVisible(false);
+    }
     if (this.ammo <= 0) {
       this.beginReload();
       return;
@@ -431,24 +540,30 @@ export default class GameScene extends Phaser.Scene {
     if (!bullet) return;
 
     const offsetY = this.player.displayHeight * 0.55;
-    bullet.enableBody(true, this.player.x, this.player.y - offsetY, true, true);
-    bullet.setTexture('playerBullet');
-    bullet.setScale(1);
-    const speed = 620;
-    const angleDeg = this.player.angle;
-    const angleRad = Phaser.Math.DegToRad(angleDeg);
-    const vx = speed * Math.sin(angleRad);
-    const vy = -speed * Math.cos(angleRad);
-    bullet.setVelocity(vx, vy);
-    bullet.setAngle(angleDeg);
-    bullet.setDepth(5);
-    bullet.body.setSize(bullet.width * this.hitboxes.bulletWidthFactor, bullet.height * this.hitboxes.bulletHeightFactor).setOffset(0, 0);
-    this.attachBulletTrail(bullet);
-    this.playShotSound(0.45);
-    this.ammo -= 1;
-    this.updateAmmoText();
-    if (this.ammo <= 0) {
-      this.beginReload();
+    const isRed = this.currentWeapon === 'red';
+    if (isRed) {
+      this.fireRedBeam(time);
+    } else {
+      bullet.enableBody(true, this.player.x, this.player.y - offsetY, true, true);
+      bullet.setTexture('playerBullet');
+      bullet.setScale(1);
+      const speed = 620;
+      const angleDeg = this.player.angle;
+      const angleRad = Phaser.Math.DegToRad(angleDeg);
+      const vx = speed * Math.sin(angleRad);
+      const vy = -speed * Math.cos(angleRad);
+      bullet.setVelocity(vx, vy);
+      bullet.setAngle(angleDeg);
+      bullet.setDepth(5);
+      bullet.body.setSize(bullet.width * this.hitboxes.bulletWidthFactor, bullet.height * this.hitboxes.bulletHeightFactor).setOffset(0, 0);
+      bullet.setData('weapon', this.currentWeapon);
+      this.attachBulletTrail(bullet);
+      this.playShotSound(0.45);
+      this.ammo -= 1;
+      this.updateAmmoText();
+      if (this.ammo <= 0) {
+        this.beginReload();
+      }
     }
   }
 
@@ -484,6 +599,7 @@ export default class GameScene extends Phaser.Scene {
     if (!enemy) return;
 
     const type = this.pickEnemyType();
+    if (type.key === 'enemyShip2' && this.enemyShip2Count >= 1) return; // egyszerre csak egy enemyShip2
     const { width } = this.scale;
     const spawnPadding = 40;
     const x = Phaser.Math.Between(spawnPadding, width - spawnPadding);
@@ -506,7 +622,15 @@ export default class GameScene extends Phaser.Scene {
     );
     enemy.hp = type.hp ?? this.enemyMaxHp;
     enemy.setData('typeKey', type.key);
+    enemy.setData('hitboxFactor', hitboxFactor);
     enemy.setData('nextShotAt', this.time.now + Phaser.Math.Between(800, 1400));
+    if (type.key === 'enemyShip2') {
+      this.enemyShip2Count += 1;
+      enemy.setData('waveBaseX', x);
+      enemy.setData('waveAmp', type.waveAmp ?? 60);
+      enemy.setData('waveFreq', type.waveFreq ?? 0.003);
+      enemy.setData('waveOffset', Math.random() * Math.PI * 2);
+    }
     this.attachShield(enemy);
   }
 
@@ -536,12 +660,21 @@ export default class GameScene extends Phaser.Scene {
     }
     bullet.disableBody(true, true);
     this.addExplosion(bullet.x, bullet.y, 16);
+    const weapon = bullet.getData('weapon');
+    const now = this.time.now;
+    if (weapon === 'red') {
+      const lastHit = enemy.getData('lastRedHitAt') ?? 0;
+      if (now - lastHit < 1000) return; // max 1 hp / s
+      enemy.setData('lastRedHitAt', now);
+    }
     enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
     if (enemy.hp <= 0) {
+      this.markEnemyRemoved(enemy);
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
       this.detachShield(enemy);
+      this.spawnGearPickup(enemy);
       this.enemyKillCount += 1;
       this.checkVictoryConditions(this.time.now);
       this.spawnWave(2); // replace fallen enemy with up to two, capped by maxActiveEnemies
@@ -566,10 +699,12 @@ export default class GameScene extends Phaser.Scene {
     const remainingHp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
     enemy.hp = remainingHp;
     if (remainingHp <= 0) {
+      this.markEnemyRemoved(enemy);
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
       this.detachShield(enemy);
+      this.spawnGearPickup(enemy);
       this.enemyKillCount += 1;
       this.checkVictoryConditions(this.time.now);
     } else {
@@ -609,7 +744,13 @@ export default class GameScene extends Phaser.Scene {
       }
     });
     this.enemies.children.each((enemy) => {
-      if (enemy.active && enemy.y > height + 80) enemy.disableBody(true, true);
+      if (enemy.active && enemy.y > height + 80) {
+        this.markEnemyRemoved(enemy);
+        enemy.disableBody(true, true);
+      }
+    });
+    this.gearPickups?.children?.each((pickup) => {
+      if (pickup.active && pickup.y > height + 120) pickup.disableBody(true, true);
     });
     // ha enemy kiment, a pajzsát is töröljük
     this.shields = this.shields.filter((shield) => {
@@ -661,6 +802,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, width - this.player.displayWidth / 2);
       this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, height - this.player.displayHeight / 2);
     }
+    this.positionWeaponIcons();
   }
 
   createHealthBar() {
@@ -741,16 +883,22 @@ export default class GameScene extends Phaser.Scene {
   beginReload() {
     if (this.reloading) return;
     this.reloading = true;
-    this.reloadEndTime = this.time.now + this.reloadTime;
+    const reloadMs = this.currentWeapon === 'red' ? this.reloadTimeAlt : this.reloadTime;
+    this.reloadEndTime = this.time.now + reloadMs;
     this.updateAmmoText();
-    this.time.delayedCall(this.reloadTime, () => {
+    this.time.delayedCall(reloadMs, () => {
+      this.maxAmmo = this.currentWeapon === 'red' ? this.maxAmmoRed : this.maxAmmoBlue;
       this.ammo = this.maxAmmo;
       this.reloading = false;
       this.reloadEndTime = null;
       this.reloadText.setVisible(false);
       this.updateAmmoText();
-      this.playReloadSound(0.75);
+      if (this.currentWeapon === 'red') this.playReload2Sound(0.7);
+      else this.playReloadSound(0.75);
       this.showAmmoLoadedFlash();
+      if (this.beamSprite) {
+        this.beamSprite.setVisible(false);
+      }
     });
   }
 
@@ -801,6 +949,208 @@ export default class GameScene extends Phaser.Scene {
   playReloadSound(volume = 0.7) {
     if (!this.gameSettings?.sfxEnabled) return;
     this.sound?.play('reload', { volume });
+  }
+
+  playReload2Sound(volume = 0.7) {
+    if (!this.gameSettings?.sfxEnabled) return;
+    this.sound?.play('reload2', { volume });
+  }
+
+  createWeaponIcons() {
+    const { width } = this.scale;
+    const { height } = this.scale;
+    const size = 52;
+    const gap = 12;
+    const y = 16 + 36 + 16; // HP sáv alatt
+    this.weaponIconBlue = this.add.rectangle(0, y, size, size, 0x4da0ff, 0.4)
+      .setStrokeStyle(2, 0x4da0ff, 0.9)
+      .setOrigin(0, 0)
+      .setDepth(9)
+      .setScrollFactor(0);
+    this.weaponIconRed = this.add.rectangle(0, y, size, size, 0xff5a5a, 0.4)
+      .setStrokeStyle(2, 0xff5a5a, 0.9)
+      .setOrigin(0, 0)
+      .setDepth(9)
+      .setScrollFactor(0);
+    this.weaponIconBlue.setX(width - (size * 2 + gap * 2));
+    this.weaponIconRed.setX(width - (size + gap));
+    this.updateWeaponIconState();
+  }
+
+  positionWeaponIcons() {
+    if (!this.weaponIconBlue || !this.weaponIconRed) return;
+    const { width } = this.scale;
+    const size = this.weaponIconBlue.width;
+    const gap = 12;
+    this.weaponIconBlue.setX(width - (size * 2 + gap * 2));
+    this.weaponIconRed.setX(width - (size + gap));
+    const y = 16 + 36 + 16;
+    this.weaponIconBlue.setY(y);
+    this.weaponIconRed.setY(y);
+  }
+
+  updateWeaponIconState() {
+    if (!this.weaponIconBlue || !this.weaponIconRed) return;
+    const activeBlue = this.currentWeapon === 'blue';
+    this.weaponIconBlue.setAlpha(activeBlue ? 0.95 : 0.25);
+    this.weaponIconRed.setAlpha(activeBlue ? 0.25 : 0.95);
+  }
+
+  fireRedBeam(time) {
+    // consume ammo per tap
+    this.ammo -= 1;
+    this.updateAmmoText();
+    if (this.ammo <= 0) {
+      this.beginReload();
+    }
+
+    const angleDeg = this.player.angle; // a hajó nézési iránya
+    const angleRad = Phaser.Math.DegToRad(angleDeg);
+    const dir = new Phaser.Math.Vector2(Math.sin(angleRad), -Math.cos(angleRad)); // előre mutató vektor
+    const origin = new Phaser.Math.Vector2(this.player.x, this.player.y);
+    const hitInfo = this.findBeamHit(origin, dir);
+    this.drawRedBeam(origin, angleDeg, hitInfo.distance);
+    if (hitInfo.enemy) {
+      const now = this.time.now;
+      const lastHit = hitInfo.enemy.getData('lastRedHitAt') ?? 0;
+      if (now - lastHit >= 1000) {
+        hitInfo.enemy.setData('lastRedHitAt', now);
+        this.applyBeamDamage(hitInfo.enemy);
+      }
+    }
+  }
+
+  findBeamHit(origin, dir) {
+    let best = { enemy: null, distance: this.redBeamLength };
+    this.enemies.children.each((enemy) => {
+      if (!enemy.active) return;
+      const body = enemy.body;
+      const ex = body?.center?.x ?? enemy.x;
+      const ey = body?.center?.y ?? enemy.y;
+      const toEnemy = new Phaser.Math.Vector2(ex - origin.x, ey - origin.y);
+      const proj = Phaser.Math.Clamp(toEnemy.dot(dir), 0, this.redBeamLength);
+      if (proj <= 0) return;
+      const perp2 = toEnemy.lengthSq() - proj * proj;
+      let radius = enemy.displayWidth * ((enemy.getData('hitboxFactor') ?? this.hitboxes.enemyRadiusFactor) / 2);
+      if (body?.isCircle) radius = body.halfWidth;
+      else if (body) radius = Math.max(body.halfWidth, body.halfHeight);
+      if (perp2 > radius * radius) return;
+      const offset = Math.sqrt(Math.max(0, radius * radius - perp2));
+      const hitDist = proj - offset;
+      if (hitDist < best.distance) {
+        best = { enemy, distance: hitDist };
+      }
+    });
+    const maxDist = this.distanceToScreenEdge(origin, dir, this.redBeamLength);
+    if (best.distance > maxDist) {
+      best.distance = maxDist;
+      best.enemy = null;
+    }
+    return best;
+  }
+
+  distanceToScreenEdge(origin, dir, maxDist) {
+    const { width, height } = this.scale;
+    let best = maxDist;
+    const eps = 1e-6;
+    const candidates = [];
+    if (Math.abs(dir.x) > eps) {
+      candidates.push((0 - origin.x) / dir.x);
+      candidates.push((width - origin.x) / dir.x);
+    }
+    if (Math.abs(dir.y) > eps) {
+      candidates.push((0 - origin.y) / dir.y);
+      candidates.push((height - origin.y) / dir.y);
+    }
+    candidates.forEach((t) => {
+      if (t > 0) best = Math.min(best, t);
+    });
+    return best;
+  }
+
+  drawRedBeam(origin, angleDeg, distance) {
+    if (!this.beamSprite) {
+      this.beamSprite = this.add.image(origin.x, origin.y, 'playerBeam').setOrigin(0.5, 1).setDepth(4);
+    }
+    this.beamSprite.setVisible(true);
+    this.beamSprite.setPosition(origin.x, origin.y);
+    this.beamSprite.setAngle(angleDeg);
+    const len = Math.min(distance, this.redBeamLength);
+    this.beamSprite.setDisplaySize(this.beamSprite.width, len + 20); // kis ráhagyás, hogy vizuálisan érintse a hitboxot
+  }
+
+  applyBeamDamage(enemy) {
+    const shield = enemy.getData('shield');
+    if (shield && shield.block({ getData: () => 'red', x: enemy.x, y: enemy.y })) {
+      return;
+    }
+    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
+    if (enemy.hp <= 0) {
+      this.markEnemyRemoved(enemy);
+      enemy.disableBody(true, true);
+      this.addExplosion(enemy.x, enemy.y);
+      this.playExplodeSound();
+      this.detachShield(enemy);
+      this.spawnGearPickup(enemy);
+      this.enemyKillCount += 1;
+      this.checkVictoryConditions(this.time.now);
+      this.spawnWave(2);
+    }
+  }
+
+  updateRedBeam() {
+    if (!this.beamSprite || !this.beamSprite.visible) return;
+    const angleDeg = this.player.angle;
+    const angleRad = Phaser.Math.DegToRad(angleDeg);
+    const dir = new Phaser.Math.Vector2(Math.sin(angleRad), -Math.cos(angleRad));
+    const origin = new Phaser.Math.Vector2(this.player.x, this.player.y);
+    const hitInfo = this.findBeamHit(origin, dir);
+    this.drawRedBeam(origin, angleDeg, hitInfo.distance);
+  }
+
+  switchWeapon(key) {
+    if (this.currentWeapon === key) return;
+    this.currentWeapon = key;
+    this.maxAmmo = key === 'red' ? this.maxAmmoRed : this.maxAmmoBlue;
+    this.ammo = this.maxAmmo;
+    this.reloading = false;
+    this.reloadEndTime = null;
+    if (this.beamSprite) this.beamSprite.setVisible(false);
+    this.updateAmmoText();
+    this.updateWeaponIconState();
+  }
+
+  spawnGearPickup(enemy) {
+    if (!enemy || enemy.getData('typeKey') !== 'enemyShip3') return;
+    if (!this.gearPickups) return;
+    const gear = this.gearPickups.get(enemy.x, enemy.y, 'gearPickup');
+    if (!gear) return;
+    gear.setActive(true).setVisible(true);
+    gear.body.enable = true;
+    gear.setDepth(8);
+    if (gear.refreshBody) gear.refreshBody();
+  }
+
+  handleGearPickup(_player, gear) {
+    if (!gear?.active) return;
+    gear.disableBody(true, true);
+    this.playerHp = Math.min(this.playerMaxHp, this.playerHp + 1);
+    this.updateHealthBar();
+  }
+
+  resolveEnemyOverlap(enemyA, enemyB) {
+    if (!enemyA || !enemyB || enemyA === enemyB) return;
+    if (!enemyA.body || !enemyB.body) return;
+    const dx = enemyB.x - enemyA.x;
+    const dy = enemyB.y - enemyA.y;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 === 0) return;
+    const n = new Phaser.Math.Vector2(dx, dy).normalize();
+    const push = 40;
+    enemyA.setVelocity(enemyA.body.velocity.x - n.x * push, enemyA.body.velocity.y);
+    enemyB.setVelocity(enemyB.body.velocity.x + n.x * push, enemyB.body.velocity.y);
+    enemyA.x -= n.x * 4;
+    enemyB.x += n.x * 4;
   }
 
   pauseGame() {
@@ -1110,7 +1460,7 @@ export default class GameScene extends Phaser.Scene {
 
   showAmmoLoadedFlash() {
     if (!this.loadedText) return;
-    this.loadedText.setText('ammo loaded');
+    this.loadedText.setText('ammo full');
     this.loadedText.setVisible(true);
     this.loadedText.setAlpha(1);
     const flashOnce = (delay) => {
@@ -1161,14 +1511,17 @@ export default class GameScene extends Phaser.Scene {
     this.debugGfx.clear();
     this.debugGfx.lineStyle(2, 0x00ff00, 0.8);
 
-    // Player circle
-    if (this.player?.active && this.player.body) {
+    // Player circle (rajzoljuk akkor is, ha a body már disabled)
+    if (this.player) {
       const body = this.player.body;
-      if (body.isCircle) {
+      if (body?.isCircle) {
         const radius = body.halfWidth;
         this.debugGfx.strokeCircle(body.x + radius, body.y + radius, radius);
-      } else {
+      } else if (body) {
         this.debugGfx.strokeRect(body.x, body.y, body.width, body.height);
+      } else {
+        const radius = (this.player.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
+        this.debugGfx.strokeCircle(this.player.x, this.player.y, radius);
       }
     }
 
@@ -1210,7 +1563,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // Player HP text
-    if (this.player?.active && this.player.body) {
+    if (this.player?.body) {
       const px = this.player.body.center.x;
       const py = this.player.body.y - 10;
       this.addDebugHp(this.player, this.playerHp, px, py, '#00ff88');
@@ -1247,6 +1600,12 @@ export default class GameScene extends Phaser.Scene {
     if (timer) {
       timer.remove(false);
       bullet.setData('trailTimer', null);
+    }
+  }
+
+  markEnemyRemoved(enemy) {
+    if (enemy?.getData('typeKey') === 'enemyShip2' && this.enemyShip2Count > 0) {
+      this.enemyShip2Count -= 1;
     }
   }
 
