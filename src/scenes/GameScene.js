@@ -19,14 +19,14 @@ export default class GameScene extends Phaser.Scene {
     this.enemyMaxHp = 3;
     this.enemyTypes = [
       { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 3, scaleMul: 1, weight: 6 },   // leggyakoribb
-      { key: 'enemyShip2', speed: { min: 140, max: 220 }, hp: 1, scaleMul: 1, weight: 4 }, // gyakoribb spawn
+      { key: 'enemyShip2', speed: { min: 190, max: 280 }, hp: 1, scaleMul: 1, weight: 4 }, // gyakoribb spawn, gyorsabb
       { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1 }    // legritkább
     ];
     this.maxAmmo = 15;
     this.ammo = this.maxAmmo;
     this.reloadTime = 3000;
     this.reloading = false;
-    this.playerMaxHp = 3;
+    this.playerMaxHp = 5;
     this.playerHp = this.playerMaxHp;
     this.hitboxes = {
       playerRadiusFactor: 4,
@@ -271,7 +271,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.x = Phaser.Math.Clamp(this.player.x + vx, this.player.displayWidth / 2, this.scale.width - this.player.displayWidth / 2);
     const minY = (this.playerBaseY ?? this.player.y) - 200;
     const maxY = (this.playerBaseY ?? this.player.y) + 200;
-    this.player.y = Phaser.Math.Clamp(this.player.y + vy, minY, maxY);
+    const clampedY = Phaser.Math.Clamp(this.player.y + vy, minY, maxY);
+    this.player.y = clampedY;
 
     // Tilt ship based on horizontal input
     let targetAngle = 0;
@@ -283,6 +284,13 @@ export default class GameScene extends Phaser.Scene {
     let targetSpeedMul = 1;
     if (this.keys.up.isDown && !this.keys.down.isDown) targetSpeedMul = 1.8;
     if (this.keys.down.isDown && !this.keys.up.isDown) targetSpeedMul = 0.5;
+
+    // ha eléri a mozgástartomány tetejét/alját, gyorsítson vagy lassítson a starfield a régi terv szerint
+    const hitTop = clampedY <= minY + 0.01;
+    const hitBottom = clampedY >= maxY - 0.01;
+    if (hitTop) targetSpeedMul = 1.8;
+    if (hitBottom) targetSpeedMul = 0.5;
+
     this.starSpeedMultiplier = Phaser.Math.Linear(this.starSpeedMultiplier, targetSpeedMul, this.starSpeedLerp);
   }
 
@@ -313,7 +321,7 @@ export default class GameScene extends Phaser.Scene {
     bullet.setDepth(5);
     bullet.body.setSize(bullet.width * this.hitboxes.bulletWidthFactor, bullet.height * this.hitboxes.bulletHeightFactor).setOffset(0, 0);
     this.attachBulletTrail(bullet);
-    this.playShotSound(0.7);
+    this.playShotSound(0.45);
     this.ammo -= 1;
     this.updateAmmoText();
     if (this.ammo <= 0) {
@@ -343,7 +351,7 @@ export default class GameScene extends Phaser.Scene {
       bullet.setAngle(Phaser.Math.RadToDeg(angleToPlayer) + 90);
       bullet.setDepth(4);
       bullet.body.setSize(bullet.width * this.hitboxes.bulletWidthFactor, bullet.height * this.hitboxes.bulletHeightFactor).setOffset(0, 0);
-      this.playShotSound(0.55);
+      this.playShotSound(0.35);
     });
   }
 
@@ -402,6 +410,7 @@ export default class GameScene extends Phaser.Scene {
     if (enemy.hp <= 0) {
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
+      this.playExplodeSound();
       this.spawnWave(2); // replace fallen enemy with up to two, capped by maxActiveEnemies
     }
   }
@@ -426,6 +435,7 @@ export default class GameScene extends Phaser.Scene {
     if (remainingHp <= 0) {
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
+      this.playExplodeSound();
     } else {
       this.addExplosion(enemy.x, enemy.y, 10, 0xffa64d);
     }
@@ -480,8 +490,8 @@ export default class GameScene extends Phaser.Scene {
 
   createHealthBar() {
     const { width } = this.scale;
-    const barWidth = 150;
-    const barHeight = 18;
+    const barWidth = 300;
+    const barHeight = 36;
     const x = width - barWidth - 20;
     const y = 16;
     this.hpBarBg = this.add.rectangle(x, y, barWidth, barHeight, 0x000000, 0.35)
@@ -502,12 +512,46 @@ export default class GameScene extends Phaser.Scene {
   updateHealthBar() {
     if (!this.hpSegments) return;
     this.hpSegments.forEach((seg, idx) => {
-      seg.setVisible(idx < this.playerHp);
+      if (idx < this.playerHp) {
+        seg.setFillStyle(0x1ee66d, 1);
+        seg.setAlpha(1);
+        seg.setVisible(true);
+      } else if (seg.visible) {
+        this.flashHpSegmentOff(seg);
+      }
     });
   }
 
-  playShotSound(volume = 0.65) {
+  playShotSound(volume = 0.35) {
     this.sound?.play('shot', { volume });
+  }
+
+  playExplodeSound(volume = 0.7) {
+    this.sound?.play('explode', { volume });
+  }
+
+  playReloadSound(volume = 0.7) {
+    this.sound?.play('reload', { volume });
+  }
+
+  flashHpSegmentOff(seg) {
+    if (!seg) return;
+    this.tweens.killTweensOf(seg);
+    seg.setFillStyle(0xffd84d, 1);
+    seg.setAlpha(1);
+    seg.setVisible(true);
+    this.tweens.add({
+      targets: seg,
+      alpha: { from: 1, to: 0 },
+      duration: 140,
+      yoyo: true,
+      repeat: 1,
+      onComplete: () => {
+        seg.setVisible(false);
+        seg.setAlpha(1);
+        seg.setFillStyle(0x1ee66d, 1);
+      }
+    });
   }
 
   damagePlayer(amount = 1) {
@@ -517,6 +561,7 @@ export default class GameScene extends Phaser.Scene {
     this.updateHealthBar();
     if (this.playerHp <= 0) {
       this.player.disableBody(true, true);
+      this.playExplodeSound(0.9);
       this.time.delayedCall(1200, () => this.scene.restart());
     }
   }
@@ -541,6 +586,7 @@ export default class GameScene extends Phaser.Scene {
       this.reloadEndTime = null;
       this.reloadText.setVisible(false);
       this.updateAmmoText();
+      this.playReloadSound(0.75);
       this.showAmmoLoadedFlash();
     });
   }
