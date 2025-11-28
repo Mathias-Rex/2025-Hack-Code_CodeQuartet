@@ -12,7 +12,7 @@ export default class MenuScene extends Phaser.Scene {
       .setDisplaySize(width, height)
       .setDepth(-1);
 
-    this.title = this.add.text(width / 2, height / 2 - 120, 'T H E BACK of BEYOND', {
+    this.title = this.add.text(width / 2, height / 2 - 120, 'THE BACK of BEYOND', {
       fontFamily: 'Arial',
       fontSize: 110,
       fontStyle: 'bold',
@@ -24,6 +24,7 @@ export default class MenuScene extends Phaser.Scene {
     this.gameSettings.musicVolume = this.musicVolume;
     this.gameSettings.musicEnabled = this.musicEnabled;
     this.sfxEnabled = this.gameSettings.sfxEnabled ?? true;
+    this.transitioning = false;
 
     let startLocked = false;
     const beginSceneTransition = () => {
@@ -310,6 +311,7 @@ export default class MenuScene extends Phaser.Scene {
     if (this.transitioning) return;
     this.transitioning = true;
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.transitioning = false;
       this.scene.start(targetScene);
     });
     this.cameras.main.fadeOut(duration, 0, 0, 0);
