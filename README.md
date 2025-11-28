@@ -73,7 +73,7 @@ _(Illusztráció: ![Gameplay](assets/docs/screenshots/gameplay1.png))_
     - ChatGPT Codex (tervezés/kód review), WindSurf és Copilot (kód egészítés IDE-ban).
     - Suno: zene generálás
     - Lenoardo: game assetek
-    - Nemtommi: Narráció
+    - Elevenlabs: Narráció és hageffektek
 
 - **Nem AI:**
   - Phaser 3,
