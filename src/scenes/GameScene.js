@@ -520,11 +520,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   handleResize(gameSize) {
+    if (!this.physics?.world) return;
     const { width, height } = gameSize;
     this.physics.world.setBounds(0, 0, width, height);
     // rebuild starfield to fit new size
     this.createStarfield();
-    if (this.player.active) {
+    if (this.player?.active) {
       this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, width - this.player.displayWidth / 2);
       this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, height - this.player.displayHeight / 2);
     }

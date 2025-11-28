@@ -24,6 +24,7 @@ export default class MenuScene extends Phaser.Scene {
     this.gameSettings.musicVolume = this.musicVolume;
     this.gameSettings.musicEnabled = this.musicEnabled;
     this.sfxEnabled = this.gameSettings.sfxEnabled ?? true;
+    this.transitioning = false;
 
     let startLocked = false;
     const beginSceneTransition = () => {
@@ -310,6 +311,7 @@ export default class MenuScene extends Phaser.Scene {
     if (this.transitioning) return;
     this.transitioning = true;
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.transitioning = false;
       this.scene.start(targetScene);
     });
     this.cameras.main.fadeOut(duration, 0, 0, 0);
