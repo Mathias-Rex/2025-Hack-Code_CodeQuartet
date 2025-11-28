@@ -90,6 +90,7 @@ export default class GameScene extends Phaser.Scene {
     this.maxActiveEnemies = 2;
     this.enemyShip2Count = 0;
     this.lastShip3SpawnAt = 0;
+    this.lastShip3SpawnAt = 0;
     this.enemySpawnDelay = 900;
     this.enemyMaxHp = 3;
     this.enemyTypes = [
@@ -598,7 +599,12 @@ export default class GameScene extends Phaser.Scene {
     const enemy = this.enemies.get();
     if (!enemy) return;
 
-    const type = this.pickEnemyType();
+    const now = this.time.now;
+    let type = this.pickEnemyType();
+    if ((now - this.lastShip3SpawnAt) > 15000 && this.countActiveType('enemyShip3') < 1) {
+      const forced = this.enemyTypes.find((t) => t.key === 'enemyShip3');
+      if (forced) type = forced;
+    }
     if (type.key === 'enemyShip2' && this.enemyShip2Count >= 1) return; // egyszerre csak egy enemyShip2
     const { width } = this.scale;
     const spawnPadding = 40;
@@ -624,6 +630,9 @@ export default class GameScene extends Phaser.Scene {
     enemy.setData('typeKey', type.key);
     enemy.setData('hitboxFactor', hitboxFactor);
     enemy.setData('nextShotAt', this.time.now + Phaser.Math.Between(800, 1400));
+    if (type.key === 'enemyShip3') {
+      this.lastShip3SpawnAt = now ?? this.time.now;
+    }
     if (type.key === 'enemyShip2') {
       this.enemyShip2Count += 1;
       enemy.setData('waveBaseX', x);
