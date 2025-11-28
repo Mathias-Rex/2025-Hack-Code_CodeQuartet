@@ -28,6 +28,23 @@ export default class GameScene extends Phaser.Scene {
     this.reloading = false;
     this.playerMaxHp = 5;
     this.playerHp = this.playerMaxHp;
+    this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true, musicVolume: 0.6 });
+    this.musicVolume = this.gameSettings.musicVolume ?? 0.6;
+    this.gameSettings.musicVolume = this.musicVolume;
+    if (this.gameSettings.musicEnabled === undefined) this.gameSettings.musicEnabled = this.musicVolume > 0.001;
+    if (this.gameSettings.sfxEnabled === undefined) this.gameSettings.sfxEnabled = true;
+    this.isPaused = false;
+    this.pauseSettingsVisible = false;
+    this.pauseContainer = null;
+    this.pauseSettingsContainer = null;
+    this.pauseButtons = [];
+    this.pauseMusicSlider = null;
+    this.pauseSfxLabel = null;
+    this.keyEsc = null;
+    this.enemyKillCount = 0;
+    this.survivalStartTime = 0;
+    this.gameOver = false;
+    this.gameOverOverlay = null;
     this.hitboxes = {
       playerRadiusFactor: 4,
       enemyRadiusFactor: 5,
@@ -53,8 +70,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.scale.width, this.scale.height);
 
     this.sound.stopByKey('gameMusic');
-    this.gameMusic = this.sound.add('gameMusic', { loop: true, volume: 0.6 });
-    this.gameMusic.play();
+    this.setupMusic();
 
     // reset per-run state
     this.reloading = false;
@@ -63,6 +79,12 @@ export default class GameScene extends Phaser.Scene {
     this.playerHp = this.playerMaxHp;
     this.starSpeedMultiplier = 1;
     this.playerCollisionPauseUntil = 0;
+    this.enemyKillCount = 0;
+    this.survivalStartTime = this.time.now;
+    this.gameOver = false;
+    this.gameOverOverlay = null;
+    this.isPaused = false;
+    this.pauseSettingsVisible = false;
 
     this.createStarfield();
     this.createBulletTexture('playerBullet', 4, 18, 0x7cf4ff);
@@ -77,6 +99,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.playerBullets, this.enemies, this.handleEnemyHit, null, this);
     this.physics.add.overlap(this.player, this.enemies, this.handlePlayerHit, null, this);
     this.physics.add.overlap(this.enemyBullets, this.player, this.handlePlayerHitByBullet, null, this);
+    this.physics.add.collider(this.enemies, this.enemies);
     this.spawnWave(Phaser.Math.Between(1, this.maxActiveEnemies));
 
     this.keys = this.input.keyboard.addKeys({
@@ -85,8 +108,10 @@ export default class GameScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
       shoot: Phaser.Input.Keyboard.KeyCodes.SPACE,
-      reload: Phaser.Input.Keyboard.KeyCodes.R
+      reload: Phaser.Input.Keyboard.KeyCodes.R,
+      pause: Phaser.Input.Keyboard.KeyCodes.ESC
     });
+    this.keyEsc = this.keys.pause;
 
     const hudX = 18;
     const hudY = 16;
@@ -135,11 +160,23 @@ export default class GameScene extends Phaser.Scene {
       loop: true
     });
 
+    this.createPauseMenu();
+
     this.events.once('shutdown', () => this.gameMusic?.stop());
     this.events.once('destroy', () => this.gameMusic?.stop());
   }
 
   update(time, delta) {
+    if (this.gameOver) return;
+    if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
+      if (this.isPaused && this.pauseSettingsVisible) {
+        this.hidePauseSettings();
+        return;
+      }
+      if (this.isPaused) this.resumeGame();
+      else this.pauseGame();
+    }
+    if (this.isPaused) return;
     this.updateStarfield(time, delta);
     if (this.player?.active) {
       this.handlePlayerMovement(delta);
@@ -149,6 +186,7 @@ export default class GameScene extends Phaser.Scene {
     this.cleanupEntities();
     this.updateReloadCountdown(time);
     if (this.debug) this.drawDebugHitboxes();
+    this.checkVictoryConditions(time);
   }
 
   createStarfield() {
@@ -411,6 +449,8 @@ export default class GameScene extends Phaser.Scene {
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
+      this.enemyKillCount += 1;
+      this.checkVictoryConditions(this.time.now);
       this.spawnWave(2); // replace fallen enemy with up to two, capped by maxActiveEnemies
     }
   }
@@ -436,6 +476,8 @@ export default class GameScene extends Phaser.Scene {
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
+      this.enemyKillCount += 1;
+      this.checkVictoryConditions(this.time.now);
     } else {
       this.addExplosion(enemy.x, enemy.y, 10, 0xffa64d);
     }
@@ -522,18 +564,6 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  playShotSound(volume = 0.35) {
-    this.sound?.play('shot', { volume });
-  }
-
-  playExplodeSound(volume = 0.7) {
-    this.sound?.play('explode', { volume });
-  }
-
-  playReloadSound(volume = 0.7) {
-    this.sound?.play('reload', { volume });
-  }
-
   flashHpSegmentOff(seg) {
     if (!seg) return;
     this.tweens.killTweensOf(seg);
@@ -562,7 +592,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.playerHp <= 0) {
       this.player.disableBody(true, true);
       this.playExplodeSound(0.9);
-      this.time.delayedCall(1200, () => this.scene.restart());
+      this.endGame('defeat');
     }
   }
 
@@ -606,6 +636,343 @@ export default class GameScene extends Phaser.Scene {
     this.reloadText.setStroke('#ff4d4d', 2);
     this.reloadText.setText(`reloading ${seconds}s`);
     this.updateTextBox(this.reloadText, this.reloadBox, 10, '#ff4d4d');
+  }
+
+  setupMusic() {
+    if (!this.gameSettings.musicEnabled) {
+      this.gameMusic?.stop();
+      return;
+    }
+    if (!this.gameMusic) {
+      this.gameMusic = this.sound.add('gameMusic', { loop: true, volume: this.musicVolume });
+    }
+    this.gameMusic.setVolume(this.musicVolume);
+    if (!this.gameMusic.isPlaying) this.gameMusic.play();
+  }
+
+  playClickSound() {
+    if (!this.gameSettings?.sfxEnabled) return;
+    this.sound?.play('click', { volume: 0.7 });
+  }
+
+  playShotSound(volume = 0.35) {
+    if (!this.gameSettings?.sfxEnabled) return;
+    this.sound?.play('shot', { volume });
+  }
+
+  playExplodeSound(volume = 0.7) {
+    if (!this.gameSettings?.sfxEnabled) return;
+    this.sound?.play('explode', { volume });
+  }
+
+  playReloadSound(volume = 0.7) {
+    if (!this.gameSettings?.sfxEnabled) return;
+    this.sound?.play('reload', { volume });
+  }
+
+  pauseGame() {
+    if (this.gameOver || this.isPaused) return;
+    this.isPaused = true;
+    this.pauseSettingsVisible = false;
+    this.physics.world.pause();
+    if (this.spawnTimer) this.spawnTimer.paused = true;
+    this.pauseContainer?.setVisible(true);
+    this.pauseSettingsContainer?.setVisible(false);
+    this.enablePauseButtons(true);
+  }
+
+  resumeGame() {
+    if (this.gameOver || !this.isPaused) return;
+    this.isPaused = false;
+    this.pauseSettingsVisible = false;
+    this.physics.world.resume();
+    if (this.spawnTimer) this.spawnTimer.paused = false;
+    this.pauseContainer?.setVisible(false);
+    this.pauseSettingsContainer?.setVisible(false);
+  }
+
+  quitToMenu() {
+    this.physics.world.resume();
+    this.gameMusic?.stop();
+    this.scene.start('Menu');
+  }
+
+  showPauseSettings() {
+    this.pauseSettingsVisible = true;
+    this.pauseSettingsContainer?.setVisible(true);
+    this.pauseContainer?.setVisible(false);
+    this.enablePauseButtons(false);
+  }
+
+  hidePauseSettings() {
+    this.pauseSettingsVisible = false;
+    this.pauseSettingsContainer?.setVisible(false);
+    this.pauseContainer?.setVisible(true);
+    this.enablePauseButtons(true);
+  }
+
+  enablePauseButtons(enable) {
+    this.pauseButtons.forEach((container) => {
+      if (!container?.buttonRef) return;
+      if (enable) container.buttonRef.setInteractive({ useHandCursor: true });
+      else container.buttonRef.disableInteractive();
+    });
+  }
+
+  handlePauseMusicVolume(value, syncSlider = false) {
+    const clamped = Phaser.Math.Clamp(value, 0, 1);
+    this.gameSettings.musicVolume = clamped;
+    this.gameSettings.musicEnabled = clamped > 0.001;
+    this.musicVolume = clamped;
+    if (this.gameSettings.musicEnabled) {
+      this.setupMusic();
+      this.gameMusic?.setVolume(clamped);
+    } else {
+      this.gameMusic?.stop();
+    }
+    if (syncSlider) this.pauseMusicSlider?.setValue(clamped, false);
+  }
+
+  togglePauseSfx() {
+    this.gameSettings.sfxEnabled = !this.gameSettings.sfxEnabled;
+    this.updatePauseSfxLabel();
+  }
+
+  updatePauseSfxLabel() {
+    if (!this.pauseSfxLabel) return;
+    this.pauseSfxLabel.setText(`Sound Effect: ${this.gameSettings.sfxEnabled ? 'ON' : 'OFF'}`);
+  }
+
+  createMenuButton(x, y, label, callback) {
+    const button = this.add.rectangle(x, y, 320, 72, 0x00c2ff, 0.9)
+      .setStrokeStyle(2, 0xffffff, 0.9)
+      .setInteractive({ useHandCursor: true });
+    const text = this.add.text(x, y, label, {
+      fontFamily: 'Arial',
+      fontSize: 30,
+      color: '#03253f'
+    }).setOrigin(0.5);
+
+    button.on('pointerover', () => button.setFillStyle(0x40e9ff, 0.95));
+    button.on('pointerout', () => button.setFillStyle(0x00c2ff, 0.9));
+    button.on('pointerup', () => {
+      this.playClickSound();
+      callback?.();
+    });
+
+    const container = this.add.container(0, 0, [button, text]);
+    container.buttonRef = button;
+    return container;
+  }
+
+  createVolumeSlider(y, initialValue, onChange) {
+    const sliderWidth = 320;
+    const slider = this.add.container(0, y);
+    const label = this.add.text(0, -28, '', {
+      fontFamily: 'Arial',
+      fontSize: 26,
+      color: '#c0d4ff'
+    }).setOrigin(0.5);
+
+    const track = this.add.rectangle(0, 0, sliderWidth, 8, 0x0a253d, 0.9)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    const fill = this.add.rectangle(-sliderWidth / 2, 0, sliderWidth * initialValue, 8, 0x00c2ff, 1)
+      .setOrigin(0, 0.5);
+    const knob = this.add.circle(-sliderWidth / 2 + sliderWidth * initialValue, 0, 10, 0xffffff)
+      .setStrokeStyle(2, 0x00c2ff)
+      .setInteractive({ useHandCursor: true });
+
+    slider.add([label, track, fill, knob]);
+
+    const setValue = (value, emitChange = true) => {
+      const clamped = Phaser.Math.Clamp(value, 0, 1);
+      fill.width = sliderWidth * clamped;
+      knob.x = -sliderWidth / 2 + sliderWidth * clamped;
+      label.setText(`Music volume: ${Math.round(clamped * 100)}%`);
+      if (emitChange) onChange(clamped);
+    };
+
+    const tmpPoint = new Phaser.Math.Vector2();
+    const handlePointer = (pointer) => {
+      slider.getWorldTransformMatrix().applyInverse(pointer.worldX, pointer.worldY, tmpPoint);
+      const ratio = Phaser.Math.Clamp((tmpPoint.x + sliderWidth / 2) / sliderWidth, 0, 1);
+      setValue(ratio);
+    };
+
+    [track, knob].forEach((target) => {
+      target.on('pointerdown', (pointer) => handlePointer(pointer));
+      target.on('pointermove', (pointer) => {
+        if (pointer.isDown) handlePointer(pointer);
+      });
+    });
+
+    setValue(initialValue, false);
+    slider.setValue = (value, emitChange = true) => setValue(value, emitChange);
+    return slider;
+  }
+
+  createSettingsButton(y, callback, label) {
+    const textLabel = label || 'Music:';
+    const button = this.add.rectangle(0, y, 320, 72, 0x00c2ff, 0.9)
+      .setStrokeStyle(2, 0xffffff, 0.95)
+      .setInteractive({ useHandCursor: true });
+    const text = this.add.text(0, y, textLabel, {
+      fontFamily: 'Arial',
+      fontSize: 28,
+      color: '#03253f'
+    }).setOrigin(0.5);
+
+    button.on('pointerover', () => button.setFillStyle(0x40e9ff, 0.95));
+    button.on('pointerout', () => button.setFillStyle(0x00c2ff, 0.9));
+    button.on('pointerup', () => {
+      this.playClickSound();
+      callback?.();
+    });
+
+    return { button, text };
+  }
+
+  createPauseSettingsMenu() {
+    const { width, height } = this.scale;
+    this.pauseSettingsContainer = this.add.container(width / 2, height / 2)
+      .setDepth(11)
+      .setVisible(false);
+
+    const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
+      .setOrigin(0.5);
+    const panel = this.add.rectangle(0, 0, 520, 420, 0x0a1f3a, 0.96)
+      .setStrokeStyle(4, 0x5de1ff);
+    const title = this.add.text(0, -150, 'Settings', {
+      fontFamily: 'Arial',
+      fontSize: 40,
+      color: '#ffffff'
+    }).setOrigin(0.5);
+
+    const musicSlider = this.createVolumeSlider(-80, this.gameSettings.musicVolume ?? 0.6, (value) => this.handlePauseMusicVolume(value));
+    const sfxToggle = this.createSettingsButton(20, () => this.togglePauseSfx(), 'Sound Effect:');
+    const back = this.createSettingsButton(140, () => this.hidePauseSettings(), 'Back');
+
+    this.pauseSettingsContainer.add([
+      overlay,
+      panel,
+      title,
+      musicSlider,
+      sfxToggle.button,
+      sfxToggle.text,
+      back.button,
+      back.text
+    ]);
+
+    this.pauseMusicSlider = musicSlider;
+    this.pauseSfxLabel = sfxToggle.text;
+    this.updatePauseSfxLabel();
+  }
+
+  createPauseMenu() {
+    const { width, height } = this.scale;
+    this.pauseContainer = this.add.container(width / 2, height / 2)
+      .setDepth(10)
+      .setVisible(false);
+    this.pauseButtons = [];
+
+    const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.6).setOrigin(0.5);
+    const panel = this.add.rectangle(0, 0, 500, 420, 0x0f1e3d, 0.95)
+      .setStrokeStyle(4, 0x61dafb);
+    const title = this.add.text(0, -150, 'Szünet', {
+      fontFamily: 'Arial',
+      fontSize: 42,
+      color: '#ffffff'
+    }).setOrigin(0.5);
+
+    const resumeBtn = this.createMenuButton(0, -60, 'Continue', () => this.resumeGame());
+    const settingsBtn = this.createMenuButton(0, 20, 'Settings', () => this.showPauseSettings());
+    const quitBtn = this.createMenuButton(0, 100, 'Back to mainmenu', () => this.quitToMenu());
+    this.pauseButtons.push(resumeBtn, settingsBtn, quitBtn);
+
+    this.pauseContainer.add([overlay, panel, title, resumeBtn, settingsBtn, quitBtn]);
+    this.createPauseSettingsMenu();
+  }
+
+  checkVictoryConditions(time) {
+    if (this.gameOver) return;
+    const survivedMs = Math.max(0, time - (this.survivalStartTime ?? 0));
+    if (survivedMs >= 60000 || this.enemyKillCount >= 25) {
+      this.endGame('victory');
+    }
+  }
+
+  endGame(result) {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    this.physics.world.pause();
+    this.spawnTimer?.remove(false);
+    this.spawnTimer = null;
+    this.gameMusic?.stop();
+    if (this.reloading) {
+      this.reloading = false;
+      this.reloadEndTime = null;
+    }
+    this.showGameOverOverlay(result);
+  }
+
+  showGameOverOverlay(result) {
+    const { width, height } = this.scale;
+    const isVictory = result === 'victory';
+    const titleText = isVictory ? 'VICTORY' : 'DEFEAT';
+    const titleColor = isVictory ? '#4cc3ff' : '#ff4d4d';
+
+    const overlay = this.add.container(0, 0).setDepth(200);
+    const dimBg = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.55)
+      .setScrollFactor(0);
+    const title = this.add.text(width / 2, height * 0.35, titleText, {
+      fontFamily: 'Arial',
+      fontSize: 96,
+      fontStyle: 'bold',
+      color: titleColor,
+      stroke: titleColor,
+      strokeThickness: 4
+    }).setOrigin(0.5);
+
+    const resumeBtn = this.createUiButton(width / 2, height * 0.55, 'Resume', () => {
+      this.gameMusic?.stop();
+      this.physics.world.resume();
+      this.scene.restart();
+    });
+    const returnBtn = this.createUiButton(width / 2, height * 0.55 + 90, 'Return to hangar', () => {
+      this.gameMusic?.stop();
+      this.scene.start('Menu');
+    });
+
+    overlay.add([dimBg, title, resumeBtn, returnBtn]);
+    this.gameOverOverlay = overlay;
+  }
+
+  createUiButton(x, y, label, onClick) {
+    const btnWidth = 320;
+    const btnHeight = 72;
+    const btn = this.add.container(x, y).setSize(btnWidth, btnHeight).setDepth(201);
+    const rect = this.add.rectangle(0, 0, btnWidth, btnHeight, 0x0c1a2f, 0.85)
+      .setOrigin(0.5)
+      .setStrokeStyle(3, 0x4cc3ff, 0.9);
+    const txt = this.add.text(0, 0, label, {
+      fontFamily: 'Arial',
+      fontSize: 38,
+      fontStyle: 'bold',
+      color: '#cfe9ff'
+    }).setOrigin(0.5);
+    btn.add([rect, txt]);
+    btn.setInteractive({ useHandCursor: true })
+      .on('pointerover', () => rect.setFillStyle(0x123356, 0.95))
+      .on('pointerout', () => rect.setFillStyle(0x0c1a2f, 0.85))
+      .on('pointerdown', () => {
+        rect.setFillStyle(0x20508c, 1);
+      })
+      .on('pointerup', () => {
+        rect.setFillStyle(0x123356, 0.95);
+        onClick?.();
+      });
+    return btn;
   }
 
   showAmmoLoadedFlash() {
