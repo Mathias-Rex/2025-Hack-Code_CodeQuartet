@@ -63,7 +63,10 @@ _(Illusztráció: ![Gameplay](assets/docs/screenshots/gameplay1.png))_
 - GitHub Actions deployol közvetlenül a `main` branchről GitHub Pages-re (élő link: lásd fent).
 
 ## 👥 Fejlesztők
-- Írd ide a csapattagok neveit és szerepeit (pl. design, kód, audio).
+- Bozzay Péter
+- Gamási Gergő
+- Hajnal Bálint
+- Mester Levente
 
 ## 🛠️ Eszközök (AI és nem AI)
 - **AI:**: 
