@@ -76,7 +76,10 @@ _(Illusztráció: ![Gameplay](assets/docs/screenshots/gameplay1.png))_
     - Nemtommi: Narráció
 
 - **Nem AI:**
-  - Phaser 3, JavaScript/Node, (build tool itt), hang/sprite szerkesztők (pl. Aseprite, Figma) — egészítsd ki a valós listával.
+  - Phaser 3,
+  - JavaScript,
+  - VSCode: IDE
+  - Github: Verziókezelés
   - Photopea: game assetek javítása, áttlátszó háttér
 
 ## 📄 Licenc
