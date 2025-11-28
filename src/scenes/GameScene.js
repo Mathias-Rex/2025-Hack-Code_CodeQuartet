@@ -1,3 +1,76 @@
+class Shield {
+  constructor(scene, enemy, options = {}) {
+    this.scene = scene;
+    this.enemy = enemy;
+    this.hp = options.hp ?? 3;
+    this.radius = options.radius ?? 80;
+    this.thickness = options.thickness ?? 10;
+    this.arcDeg = options.arcDeg ?? 90;
+    this.color = options.color ?? 0x4cc3ff;
+    this.baseAngle = options.baseAngle ?? 0;
+    this.lastAngle = this.baseAngle;
+    this.graphics = scene.add.graphics({ x: 0, y: 0 }).setDepth(6);
+    this.graphics.setAlpha(0.55);
+  }
+
+  takeDamage(amount = 1) {
+    this.hp = Math.max(0, this.hp - amount);
+    if (this.hp <= 0) this.destroy();
+  }
+
+  destroy() {
+    this.graphics?.destroy();
+    this.graphics = null;
+    this.enemy = null;
+  }
+
+  update(player) {
+    if (!this.graphics || !this.enemy?.active) {
+      this.destroy();
+      return;
+    }
+    const targetX = player?.x ?? this.enemy.x;
+    const targetY = player?.y ?? this.enemy.y;
+    const angle = Phaser.Math.Angle.Between(this.enemy.x, this.enemy.y, targetX, targetY) + this.baseAngle;
+    this.lastAngle = angle;
+    this.drawArc(angle);
+  }
+
+  drawArc(angle) {
+    this.graphics.clear();
+    const half = Phaser.Math.DegToRad((this.arcDeg ?? 90) / 2);
+    const start = angle - half;
+    const end = angle + half;
+    // halvány "blur" halo
+    this.graphics.lineStyle(this.thickness * 1.8, this.color, 0.22);
+    this.graphics.beginPath();
+    this.graphics.arc(this.enemy.x, this.enemy.y, this.radius, start, end);
+    this.graphics.strokePath();
+    // élesebb ív
+    this.graphics.lineStyle(this.thickness, this.color, 0.9);
+    this.graphics.beginPath();
+    this.graphics.arc(this.enemy.x, this.enemy.y, this.radius, start, end);
+    this.graphics.strokePath();
+  }
+
+  block(bullet) {
+    if (this.hp <= 0 || !bullet?.active || !this.enemy?.active) return false;
+    const dx = bullet.x - this.enemy.x;
+    const dy = bullet.y - this.enemy.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > this.radius + this.thickness * 1.5) return false;
+    const angToBullet = Math.atan2(dy, dx);
+    const diff = Phaser.Math.Angle.Wrap(angToBullet - this.lastAngle);
+    const half = Phaser.Math.DegToRad((this.arcDeg ?? 90) / 2);
+    if (Math.abs(diff) <= half) {
+      this.takeDamage(1);
+      this.scene?.addExplosion(bullet.x, bullet.y, 10, 0x4cc3ff);
+      return true;
+    }
+    return false;
+  }
+}
+
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super('Game');
@@ -20,7 +93,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemyTypes = [
       { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 3, scaleMul: 1, weight: 6 },   // leggyakoribb
       { key: 'enemyShip2', speed: { min: 190, max: 280 }, hp: 1, scaleMul: 1, weight: 4 }, // gyakoribb spawn, gyorsabb
-      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1 }    // legritkább
+      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1, hitboxFactor: 2.5 }    // legritkább, kisebb hitbox
     ];
     this.maxAmmo = 15;
     this.ammo = this.maxAmmo;
@@ -51,6 +124,7 @@ export default class GameScene extends Phaser.Scene {
       bulletWidthFactor: 1,
       bulletHeightFactor: 1
     };
+    this.shields = [];
     this.starSpeedMultiplier = 1;
     this.starSpeedLerp = 0.08;
     this.debug = !!window.__DEBUG__;
@@ -85,6 +159,7 @@ export default class GameScene extends Phaser.Scene {
     this.gameOverOverlay = null;
     this.isPaused = false;
     this.pauseSettingsVisible = false;
+    this.shields = [];
 
     this.createStarfield();
     this.createBulletTexture('playerBullet', 4, 18, 0x7cf4ff);
@@ -167,6 +242,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    // keep debug flag in sync with global toggle
+    const dbg = !!window.__DEBUG__;
+    if (dbg !== this.debug) {
+      this.debug = dbg;
+      if (this.debug && !this.debugGfx) {
+        this.debugGfx = this.add.graphics({ x: 0, y: 0 }).setDepth(50);
+      }
+    }
+    if (this.debug) this.drawDebugHitboxes(); // debug overlay maradjon game over alatt is
     if (this.gameOver) return;
     if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
       if (this.isPaused && this.pauseSettingsVisible) {
@@ -182,6 +266,7 @@ export default class GameScene extends Phaser.Scene {
       this.handlePlayerMovement(delta);
       this.handleShooting(time);
     }
+    this.updateShields();
     this.updateEnemyShooting(time);
     this.cleanupEntities();
     this.updateReloadCountdown(time);
@@ -412,7 +497,8 @@ export default class GameScene extends Phaser.Scene {
     enemy.setScale(scale);
     enemy.setDepth(4);
     enemy.setVelocity(0, Phaser.Math.Between(type.speed.min, type.speed.max));
-    const enemyRadius = (enemy.displayWidth * this.hitboxes.enemyRadiusFactor) / 2;
+    const hitboxFactor = type.hitboxFactor ?? this.hitboxes.enemyRadiusFactor;
+    const enemyRadius = (enemy.displayWidth * hitboxFactor) / 2;
     enemy.body.setCircle(enemyRadius);
     enemy.body.setOffset(
       enemy.displayOriginX - enemyRadius,
@@ -421,6 +507,7 @@ export default class GameScene extends Phaser.Scene {
     enemy.hp = type.hp ?? this.enemyMaxHp;
     enemy.setData('typeKey', type.key);
     enemy.setData('nextShotAt', this.time.now + Phaser.Math.Between(800, 1400));
+    this.attachShield(enemy);
   }
 
   pickEnemyType() {
@@ -442,6 +529,11 @@ export default class GameScene extends Phaser.Scene {
 
   handleEnemyHit(bullet, enemy) {
     this.stopBulletTrail(bullet);
+    const shield = enemy?.getData('shield');
+    if (shield && shield.block(bullet)) {
+      bullet.disableBody(true, true);
+      return;
+    }
     bullet.disableBody(true, true);
     this.addExplosion(bullet.x, bullet.y, 16);
     enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
@@ -449,6 +541,7 @@ export default class GameScene extends Phaser.Scene {
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
+      this.detachShield(enemy);
       this.enemyKillCount += 1;
       this.checkVictoryConditions(this.time.now);
       this.spawnWave(2); // replace fallen enemy with up to two, capped by maxActiveEnemies
@@ -476,6 +569,7 @@ export default class GameScene extends Phaser.Scene {
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
+      this.detachShield(enemy);
       this.enemyKillCount += 1;
       this.checkVictoryConditions(this.time.now);
     } else {
@@ -516,6 +610,44 @@ export default class GameScene extends Phaser.Scene {
     });
     this.enemies.children.each((enemy) => {
       if (enemy.active && enemy.y > height + 80) enemy.disableBody(true, true);
+    });
+    // ha enemy kiment, a pajzsát is töröljük
+    this.shields = this.shields.filter((shield) => {
+      if (!shield.enemy?.active) {
+        shield.destroy();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  attachShield(enemy) {
+    if (!enemy) return;
+    if (enemy.getData('typeKey') !== 'enemyShip3') return; // csak a nagy hajó kap pajzsot
+    const shield = new Shield(this, enemy, {
+      hp: 4,
+      radius: enemy.displayWidth * 0.8,
+      thickness: 8,
+      arcDeg: 90,
+      color: 0x4cc3ff,
+      baseAngle: 0
+    });
+    this.shields.push(shield);
+    enemy.setData('shield', shield);
+  }
+
+  detachShield(enemy) {
+    const shield = enemy?.getData('shield');
+    if (shield) shield.destroy();
+    enemy?.setData('shield', null);
+    this.shields = this.shields.filter((s) => s !== shield);
+  }
+
+  updateShields() {
+    if (!this.shields?.length) return;
+    this.shields = this.shields.filter((shield) => {
+      shield.update(this.player);
+      return !!shield.graphics;
     });
   }
 
@@ -1047,9 +1179,27 @@ export default class GameScene extends Phaser.Scene {
       if (enemy.body.isCircle) {
         const r = enemy.body.halfWidth;
         this.debugGfx.strokeCircle(enemy.body.x + r, enemy.body.y + r, r);
+        this.addDebugHp(enemy, enemy.hp ?? this.enemyMaxHp, enemy.body.x + r, enemy.body.y + r - r - 10);
       } else {
         this.debugGfx.strokeRect(enemy.body.x, enemy.body.y, enemy.body.width, enemy.body.height);
+        this.addDebugHp(enemy, enemy.hp ?? this.enemyMaxHp, enemy.body.x + enemy.body.width / 2, enemy.body.y - 10);
       }
+    });
+    // Shields (circular arcs for debug)
+    this.shields.forEach((shield) => {
+      if (!shield?.enemy?.active || shield.hp <= 0) return;
+      const { x, y } = shield.enemy;
+      const radius = shield.radius;
+      const half = Phaser.Math.DegToRad((shield.arcDeg ?? 90) / 2);
+      const start = shield.lastAngle - half;
+      const end = shield.lastAngle + half;
+      this.debugGfx.lineStyle(1, 0x4cc3ff, 0.7);
+      this.debugGfx.beginPath();
+      this.debugGfx.arc(x, y, radius, start, end);
+      this.debugGfx.strokePath();
+      this.debugGfx.lineBetween(x, y, x + Math.cos(start) * radius, y + Math.sin(start) * radius);
+      this.debugGfx.lineBetween(x, y, x + Math.cos(end) * radius, y + Math.sin(end) * radius);
+      this.addDebugHp(shield, shield.hp, x, y - radius - 8, '#4cc3ff');
     });
 
     // Player bullets
@@ -1058,6 +1208,13 @@ export default class GameScene extends Phaser.Scene {
       if (!bullet.active || !bullet.body) return;
       this.debugGfx.strokeRect(bullet.body.x, bullet.body.y, bullet.body.width, bullet.body.height);
     });
+
+    // Player HP text
+    if (this.player?.active && this.player.body) {
+      const px = this.player.body.center.x;
+      const py = this.player.body.y - 10;
+      this.addDebugHp(this.player, this.playerHp, px, py, '#00ff88');
+    }
   }
 
   attachBulletTrail(bullet) {
@@ -1091,5 +1248,18 @@ export default class GameScene extends Phaser.Scene {
       timer.remove(false);
       bullet.setData('trailTimer', null);
     }
+  }
+
+  addDebugHp(entity, value, x, y, color = '#ff5252') {
+    if (!this.debug) return;
+    if (!this.debugGfx) return;
+    const text = this.add.text(x, y, `${value}`, {
+      fontFamily: 'Arial',
+      fontSize: 14,
+      color,
+      stroke: '#000000',
+      strokeThickness: 2
+    }).setOrigin(0.5).setDepth(51);
+    this.time.delayedCall(16, () => text.destroy()); // csak egy frame-re jelenjen meg
   }
 }
