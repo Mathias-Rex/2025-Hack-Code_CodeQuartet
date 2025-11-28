@@ -95,17 +95,21 @@ export default class GameScene extends Phaser.Scene {
     this.enemyMaxHp = 3;
     this.enemyTypes = [
       { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 3, scaleMul: 1, weight: 6, hitboxFactor: 5 },    // leggyakoribb
-      { key: 'enemyShip2', speed: { min: 170, max: 250 }, hp: 1, scaleMul: 1, weight: 4, hitboxFactor: 5, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
+      { key: 'enemyShip2', speed: { min: 220, max: 320 }, hp: 1, scaleMul: 1, weight: 4, hitboxFactor: 5, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
       { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1, hitboxFactor: 2.5 }   // legritkább, kisebb hitbox
     ];
     this.maxAmmoBlue = 15;
-    this.maxAmmoRed = 30;
+    this.maxAmmoRed = 1; // lézer időalapú
     this.maxAmmo = this.maxAmmoBlue;
     this.ammo = this.maxAmmo;
     this.reloadTime = 3000;
-    this.reloadTimeAlt = 2000;
+    this.reloadTimeAlt = 3000;
+    this.redFireDuration = 3000;
+    this.redReloadDuration = 3000;
+    this.redFiringUntil = 0;
     this.redBeamLength = 500;
     this.reloading = false;
+    this.redNextReloadDue = 0;
     this.playerMaxHp = 5;
     this.playerHp = this.playerMaxHp;
     this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true, musicVolume: 0.6 });
@@ -133,9 +137,13 @@ export default class GameScene extends Phaser.Scene {
     };
     this.shields = [];
     this.gearPickups = null;
+    this.shieldPickups = null;
     this.weaponIconBlue = null;
     this.weaponIconRed = null;
     this.beamSprite = null;
+    this.pickupFallSpeedGear = 70;
+    this.pickupFallSpeedShield = 60;
+    this.playerShield = null;
     this.starSpeedMultiplier = 1;
     this.starSpeedLerp = 0.08;
     this.debug = !!window.__DEBUG__;
@@ -178,19 +186,22 @@ export default class GameScene extends Phaser.Scene {
     this.createBulletTexture('enemyBullet', 5, 12, 0xff8a7a);
     this.createBulletTexture('playerBeam', 4, 18, 0xff4d4d);
     this.createGearTexture('gearPickup');
+    this.createShieldTexture('shieldPickup');
 
     this.player = this.createPlayer();
     this.playerBaseY = this.player.y;
     this.playerBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.enemies = this.physics.add.group({ classType: Phaser.Physics.Arcade.Sprite, maxSize: 30 });
-    this.gearPickups = this.physics.add.staticGroup();
+    this.gearPickups = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, allowGravity: false });
+    this.shieldPickups = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, allowGravity: false });
 
     this.physics.add.overlap(this.playerBullets, this.enemies, this.handleEnemyHit, null, this);
     this.physics.add.overlap(this.player, this.enemies, this.handlePlayerHit, null, this);
     this.physics.add.overlap(this.enemyBullets, this.player, this.handlePlayerHitByBullet, null, this);
     this.physics.add.overlap(this.enemies, this.enemies, this.resolveEnemyOverlap, null, this);
     this.physics.add.overlap(this.player, this.gearPickups, this.handleGearPickup, null, this);
+    this.physics.add.overlap(this.player, this.shieldPickups, this.handleShieldPickup, null, this);
     this.spawnWave(Phaser.Math.Between(1, this.maxActiveEnemies));
 
     this.keys = this.input.keyboard.addKeys({
@@ -296,6 +307,17 @@ export default class GameScene extends Phaser.Scene {
     return count;
   }
 
+  clampEnemiesToBounds() {
+    const { width } = this.scale;
+    this.enemies.children.each((enemy) => {
+      if (!enemy.active) return;
+      const halfW = enemy.displayWidth / 2;
+      const clampedX = Phaser.Math.Clamp(enemy.x, halfW + 2, width - halfW - 2);
+      enemy.x = clampedX;
+      if (enemy.body) enemy.body.x = clampedX - halfW;
+    });
+  }
+
   update(time, delta) {
     // keep debug flag in sync with global toggle
     const dbg = !!window.__DEBUG__;
@@ -312,13 +334,14 @@ export default class GameScene extends Phaser.Scene {
       this.switchWeapon('red');
     }
     if (this.currentWeapon === 'red') {
-      if (!this.reloading && this.ammo < this.maxAmmoRed && !this.keys.shoot.isDown) {
+      if (!this.reloading && this.redFiringUntil > 0 && time > this.redFiringUntil) {
         this.beginReload();
       }
       if (this.keys.shoot.isDown && !this.reloading && this.ammo > 0) {
         this.updateRedBeam();
       } else if (this.beamSprite) {
-        this.beamSprite.setVisible(false);
+        this.beamSprite.destroy();
+        this.beamSprite = null;
       }
     }
     if (Phaser.Input.Keyboard.JustDown(this.keyEsc)) {
@@ -480,6 +503,27 @@ export default class GameScene extends Phaser.Scene {
     g.destroy();
   }
 
+  createShieldTexture(key) {
+    if (this.textures.exists(key)) return;
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    const w = 48;
+    const h = 60;
+    g.clear();
+    g.fillStyle(0x9aa0ab, 0.9);
+    g.lineStyle(3, 0xcfd4de, 1);
+    g.beginPath();
+    g.moveTo(w / 2, 0);
+    g.lineTo(w, h * 0.3);
+    g.lineTo(w * 0.75, h);
+    g.lineTo(w * 0.25, h);
+    g.lineTo(0, h * 0.3);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+    g.generateTexture(key, w, h);
+    g.destroy();
+  }
+
   handlePlayerMovement(delta) {
     const move = (this.playerSpeed * delta) / 1000;
     let vx = 0;
@@ -520,31 +564,25 @@ export default class GameScene extends Phaser.Scene {
   handleShooting(time) {
     if (!this.keys.shoot.isDown) return;
     if (time < this.nextShotAt) return;
-    if (this.reloading && this.currentWeapon !== 'red') return;
-    if (this.reloading && this.currentWeapon === 'red') {
-      // azonnal befejezzük a töltést, hogy lőhessen
-      this.reloading = false;
-      this.reloadEndTime = null;
-      this.ammo = this.maxAmmoRed;
-      this.reloadText?.setVisible(false);
-      this.reloadBox?.setVisible(false);
-      this.updateAmmoText();
-      if (this.beamSprite) this.beamSprite.setVisible(false);
-    }
+    if (this.reloading) return;
     if (this.ammo <= 0) {
       this.beginReload();
       return;
     }
     this.nextShotAt = time + this.fireDelay;
 
-    const bullet = this.playerBullets.get();
-    if (!bullet) return;
-
     const offsetY = this.player.displayHeight * 0.55;
     const isRed = this.currentWeapon === 'red';
     if (isRed) {
+      if (this.redFiringUntil <= 0) this.redFiringUntil = time + this.redFireDuration;
+      if (time > this.redFiringUntil) {
+        this.beginReload();
+        return;
+      }
       this.fireRedBeam(time);
     } else {
+      const bullet = this.playerBullets.get();
+      if (!bullet) return;
       bullet.enableBody(true, this.player.x, this.player.y - offsetY, true, true);
       bullet.setTexture('playerBullet');
       bullet.setScale(1);
@@ -683,6 +721,7 @@ export default class GameScene extends Phaser.Scene {
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
       this.detachShield(enemy);
+      this.spawnShieldPickup(enemy);
       this.spawnGearPickup(enemy);
       this.enemyKillCount += 1;
       this.checkVictoryConditions(this.time.now);
@@ -761,6 +800,9 @@ export default class GameScene extends Phaser.Scene {
     this.gearPickups?.children?.each((pickup) => {
       if (pickup.active && pickup.y > height + 120) pickup.disableBody(true, true);
     });
+    this.shieldPickups?.children?.each((pickup) => {
+      if (pickup.active && pickup.y > height + 120) pickup.disableBody(true, true);
+    });
     // ha enemy kiment, a pajzsát is töröljük
     this.shields = this.shields.filter((shield) => {
       if (!shield.enemy?.active) {
@@ -793,10 +835,41 @@ export default class GameScene extends Phaser.Scene {
     this.shields = this.shields.filter((s) => s !== shield);
   }
 
+  attachPlayerShield() {
+    if (this.playerShield) this.detachPlayerShield();
+    const radius = (this.player.displayWidth * this.hitboxes.playerRadiusFactor) / 4; // fele akkora sugár
+    const shield = new Shield(this, this.player, {
+      hp: 2,
+      radius,
+      thickness: 8,
+      arcDeg: 90,
+      color: 0x4cc3ff,
+      baseAngle: Math.PI + Math.PI / 2 // 90 fokkal elforgatva óramutató irányába
+    });
+    shield.isPlayerShield = true;
+    this.playerShield = shield;
+    this.shields.push(shield);
+    this.player.setData('shield', shield);
+  }
+
+  detachPlayerShield() {
+    if (!this.playerShield) return;
+    this.playerShield.destroy();
+    this.playerShield = null;
+    this.shields = this.shields.filter((s) => s !== this.playerShield);
+    this.player?.setData('shield', null);
+  }
+
   updateShields() {
     if (!this.shields?.length) return;
     this.shields = this.shields.filter((shield) => {
-      shield.update(this.player);
+      if (shield.isPlayerShield) {
+        const angle = Phaser.Math.DegToRad(this.player.angle) + Math.PI + Math.PI / 2;
+        shield.lastAngle = angle;
+        shield.drawArc(angle);
+      } else {
+        shield.update(this.player);
+      }
       return !!shield.graphics;
     });
   }
@@ -882,18 +955,46 @@ export default class GameScene extends Phaser.Scene {
 
   updateAmmoText() {
     if (!this.ammoText) return;
-    const color = this.reloading || this.ammo <= 0 ? '#ff4d4d' : '#00ff88';
-    this.ammoText.setColor(color);
-    this.ammoText.setStroke(color, 2);
-    this.ammoText.setText(`ammo ${this.ammo}/${this.maxAmmo}`);
-    this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
+    if (this.currentWeapon === 'red') {
+      const isReloading = this.reloading && this.reloadEndTime;
+      if (isReloading) {
+        const remaining = Math.max(0, this.reloadEndTime - this.time.now);
+        const seconds = (remaining / 1000).toFixed(1);
+        const color = '#ff4d4d';
+        this.ammoText.setColor(color);
+        this.ammoText.setStroke(color, 2);
+        this.ammoText.setText(`ammo ${seconds}s`);
+        this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
+      } else if (this.redFiringUntil > this.time.now) {
+        const remaining = Math.max(0, this.redFiringUntil - this.time.now);
+        const seconds = (remaining / 1000).toFixed(1);
+        const color = '#00ff88';
+        this.ammoText.setColor(color);
+        this.ammoText.setStroke(color, 2);
+        this.ammoText.setText(`ammo ${seconds}s`);
+        this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
+      } else {
+        const color = '#00ff88';
+        this.ammoText.setColor(color);
+        this.ammoText.setStroke(color, 2);
+        this.ammoText.setText('ammo ready');
+        this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
+      }
+    } else {
+      const color = this.reloading || this.ammo <= 0 ? '#ff4d4d' : '#00ff88';
+      this.ammoText.setColor(color);
+      this.ammoText.setStroke(color, 2);
+      this.ammoText.setText(`ammo ${this.ammo}/${this.maxAmmo}`);
+      this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
+    }
   }
 
   beginReload() {
     if (this.reloading) return;
     this.reloading = true;
-    const reloadMs = this.currentWeapon === 'red' ? this.reloadTimeAlt : this.reloadTime;
+    const reloadMs = this.currentWeapon === 'red' ? this.redReloadDuration : this.reloadTime;
     this.reloadEndTime = this.time.now + reloadMs;
+    if (this.currentWeapon === 'red') this.redFiringUntil = 0;
     this.updateAmmoText();
     this.time.delayedCall(reloadMs, () => {
       this.maxAmmo = this.currentWeapon === 'red' ? this.maxAmmoRed : this.maxAmmoBlue;
@@ -1006,13 +1107,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   fireRedBeam(time) {
-    // consume ammo per tap
-    this.ammo -= 1;
-    this.updateAmmoText();
-    if (this.ammo <= 0) {
-      this.beginReload();
-    }
-
     const angleDeg = this.player.angle; // a hajó nézési iránya
     const angleRad = Phaser.Math.DegToRad(angleDeg);
     const dir = new Phaser.Math.Vector2(Math.sin(angleRad), -Math.cos(angleRad)); // előre mutató vektor
@@ -1093,13 +1187,14 @@ export default class GameScene extends Phaser.Scene {
     if (shield && shield.block({ getData: () => 'red', x: enemy.x, y: enemy.y })) {
       return;
     }
-    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
+    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 2);
     if (enemy.hp <= 0) {
       this.markEnemyRemoved(enemy);
       enemy.disableBody(true, true);
       this.addExplosion(enemy.x, enemy.y);
       this.playExplodeSound();
       this.detachShield(enemy);
+      this.spawnShieldPickup(enemy);
       this.spawnGearPickup(enemy);
       this.enemyKillCount += 1;
       this.checkVictoryConditions(this.time.now);
@@ -1124,7 +1219,10 @@ export default class GameScene extends Phaser.Scene {
     this.ammo = this.maxAmmo;
     this.reloading = false;
     this.reloadEndTime = null;
-    if (this.beamSprite) this.beamSprite.setVisible(false);
+    if (this.beamSprite) {
+      this.beamSprite.destroy();
+      this.beamSprite = null;
+    }
     this.updateAmmoText();
     this.updateWeaponIconState();
   }
@@ -1134,10 +1232,23 @@ export default class GameScene extends Phaser.Scene {
     if (!this.gearPickups) return;
     const gear = this.gearPickups.get(enemy.x, enemy.y, 'gearPickup');
     if (!gear) return;
+    gear.enableBody(true, enemy.x, enemy.y, true, true);
     gear.setActive(true).setVisible(true);
-    gear.body.enable = true;
     gear.setDepth(8);
-    if (gear.refreshBody) gear.refreshBody();
+    gear.setVelocity(0, this.pickupFallSpeedGear ?? 40);
+    gear.setImmovable(true);
+  }
+
+  spawnShieldPickup(enemy) {
+    if (!enemy || enemy.getData('typeKey') !== 'enemyShip2') return;
+    if (!this.shieldPickups) return;
+    const shield = this.shieldPickups.get(enemy.x, enemy.y, 'shieldPickup');
+    if (!shield) return;
+    shield.enableBody(true, enemy.x, enemy.y, true, true);
+    shield.setActive(true).setVisible(true);
+    shield.setDepth(8);
+    shield.setVelocity(0, this.pickupFallSpeedShield ?? 30);
+    shield.setImmovable(true);
   }
 
   handleGearPickup(_player, gear) {
@@ -1145,6 +1256,12 @@ export default class GameScene extends Phaser.Scene {
     gear.disableBody(true, true);
     this.playerHp = Math.min(this.playerMaxHp, this.playerHp + 1);
     this.updateHealthBar();
+  }
+
+  handleShieldPickup(_player, shield) {
+    if (!shield?.active) return;
+    shield.disableBody(true, true);
+    this.attachPlayerShield();
   }
 
   resolveEnemyOverlap(enemyA, enemyB) {
@@ -1389,7 +1506,7 @@ export default class GameScene extends Phaser.Scene {
   checkVictoryConditions(time) {
     if (this.gameOver) return;
     const survivedMs = Math.max(0, time - (this.survivalStartTime ?? 0));
-    if (survivedMs >= 60000 || this.enemyKillCount >= 25) {
+    if (survivedMs >= 300000 || this.enemyKillCount >= 25) {
       this.endGame('victory');
     }
   }

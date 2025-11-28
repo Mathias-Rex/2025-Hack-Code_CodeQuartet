@@ -16,7 +16,13 @@ export default class GameScene2 extends Phaser.Scene {
 
     this.setupMusic();
 
-    this.wedge = this.add.graphics({ x: 0, y: 0 }).setDepth(2);
+    this.wedge = this.add.graphics({ x: 0, y: 0 }).setDepth(10);
+    this.visionOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.82)
+      .setScrollFactor(0)
+      .setDepth(11);
+    const mask = this.wedge.createGeometryMask();
+    mask.setInvertAlpha(true);
+    this.visionOverlay.setMask(mask);
     this.walls = this.physics.add.staticGroup();
     this.createRooms();
     this.player = this.createPlayer(width / 2, height / 2);
@@ -28,11 +34,16 @@ export default class GameScene2 extends Phaser.Scene {
     this.bullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.createBulletTexture('tdBullet', 6, 14, 0xff4444);
 
+    this.maxAmmo = 10;
+    this.ammo = this.maxAmmo;
+    this.maxAmmo = 10;
+    this.ammo = this.maxAmmo;
     this.reloadTime = 5000;
     this.reloading = false;
     this.reloadEndTime = null;
     this.burstCount = 3;
-    this.burstInterval = 120;
+    this.burstInterval = 1000;
+    this.nextBurstAt = 0;
 
     const hudX = 18;
     const hudY = 16;
@@ -77,10 +88,11 @@ export default class GameScene2 extends Phaser.Scene {
 
     this.input.on('pointerdown', () => this.tryShootBurst());
 
-    this.physics.add.collider(this.player, this.walls);
-    this.physics.add.collider(this.bullets, this.walls, (bullet) => {
-      bullet.disableBody(true, true);
-    });
+    // falakon át lehet menni, lövedék se akad el
+    // this.physics.add.collider(this.player, this.walls);
+    // this.physics.add.collider(this.bullets, this.walls, (bullet) => {
+    //   bullet.disableBody(true, true);
+    // });
 
     this.createPauseMenu();
 
@@ -96,6 +108,7 @@ export default class GameScene2 extends Phaser.Scene {
     if (this.isPaused) return;
     this.handleMovement(delta);
     this.updateWedge();
+    this.updateVisionMask();
     this.updateBullets();
     this.updateReloadCountdown(time);
   }
@@ -103,7 +116,7 @@ export default class GameScene2 extends Phaser.Scene {
   createPlayer(x, y) {
     const sprite = this.physics.add.sprite(x, y, 'playerman');
     sprite.setCollideWorldBounds(true);
-    sprite.setDamping(true).setDrag(0.85).setMaxVelocity(320);
+    sprite.setDamping(true).setDrag(0.85).setMaxVelocity(200);
     const targetWidth = Math.min(90, this.scale.width * 0.12);
     const scale = targetWidth / sprite.width;
     sprite.setScale(scale);
@@ -112,7 +125,7 @@ export default class GameScene2 extends Phaser.Scene {
   }
 
   handleMovement(delta) {
-    const move = (320 * delta) / 1000;
+    const move = (200 * delta) / 1000;
     const forwardInput = (this.keys.up.isDown ? 1 : 0) + (this.keys.down.isDown ? -1 : 0);
     const strafeInput = (this.keys.right.isDown ? 1 : 0) + (this.keys.left.isDown ? -1 : 0);
     const cosA = Math.cos(this.aimAngle);
@@ -145,8 +158,22 @@ export default class GameScene2 extends Phaser.Scene {
     this.wedge.strokePath();
   }
 
+  updateVisionMask() {
+    if (!this.visionOverlay) return;
+    const { width, height } = this.scale;
+    this.visionOverlay.setSize(width, height);
+    this.visionOverlay.setPosition(width / 2, height / 2);
+  }
+
   tryShootBurst() {
     if (this.reloading) return;
+    if (this.time.now < (this.nextBurstAt ?? 0)) return;
+    if (this.ammo < this.burstCount) {
+      this.beginReload();
+      return;
+    }
+    this.nextBurstAt = this.time.now + 1000;
+    this.ammo = Math.max(0, this.ammo - this.burstCount);
     const angleDeg = Phaser.Math.RadToDeg(this.aimAngle);
     for (let i = 0; i < this.burstCount; i += 1) {
       const offsetDeg = (i - 1) * 4; // -4,0,4 fok
@@ -154,9 +181,10 @@ export default class GameScene2 extends Phaser.Scene {
         this.fireBullet(Phaser.Math.DegToRad(angleDeg + offsetDeg));
       });
     }
-    this.reloading = true;
-    this.reloadEndTime = this.time.now + this.reloadTime;
-    this.updateAmmoText('reloading');
+    this.updateAmmoText('ready');
+    if (this.ammo <= 0) {
+      this.beginReload();
+    }
   }
 
   fireBullet(angleRad) {
@@ -203,6 +231,7 @@ export default class GameScene2 extends Phaser.Scene {
     if (remaining <= 0) {
       this.reloading = false;
       this.reloadEndTime = null;
+      this.ammo = this.maxAmmo;
       this.updateAmmoText('ready');
       this.playReloadSound(0.65);
     }
@@ -213,7 +242,8 @@ export default class GameScene2 extends Phaser.Scene {
     const color = label === 'reloading' ? '#ff4d4d' : '#00ff88';
     this.ammoText.setColor(color);
     this.ammoText.setStroke(color, 2);
-    this.ammoText.setText(label === 'reloading' ? 'ammo 0/3' : 'ammo 3/3');
+    if (label === 'reloading') this.ammoText.setText(`ammo 0/${this.maxAmmo}`);
+    else this.ammoText.setText(`ammo ${this.ammo}/${this.maxAmmo}`);
     this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
   }
 
