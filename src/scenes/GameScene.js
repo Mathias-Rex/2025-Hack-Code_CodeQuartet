@@ -62,12 +62,14 @@ export default class GameScene extends Phaser.Scene {
     this.ammo = this.maxAmmo;
     this.playerHp = this.playerMaxHp;
     this.starSpeedMultiplier = 1;
+    this.playerCollisionPauseUntil = 0;
 
     this.createStarfield();
     this.createBulletTexture('playerBullet', 4, 18, 0x7cf4ff);
     this.createBulletTexture('enemyBullet', 5, 12, 0xff8a7a);
 
     this.player = this.createPlayer();
+    this.playerBaseY = this.player.y;
     this.playerBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.enemyBullets = this.physics.add.group({ classType: Phaser.Physics.Arcade.Image, maxSize: 60 });
     this.enemies = this.physics.add.group({ classType: Phaser.Physics.Arcade.Sprite, maxSize: 30 });
@@ -258,12 +260,18 @@ export default class GameScene extends Phaser.Scene {
   handlePlayerMovement(delta) {
     const move = (this.playerSpeed * delta) / 1000;
     let vx = 0;
+    let vy = 0;
     if (this.keys.left.isDown) vx -= move;
     if (this.keys.right.isDown) vx += move;
+    if (this.keys.up.isDown) vy -= move;
+    if (this.keys.down.isDown) vy += move;
     if (Phaser.Input.Keyboard.JustDown(this.keys.reload)) {
       this.beginReload();
     }
     this.player.x = Phaser.Math.Clamp(this.player.x + vx, this.player.displayWidth / 2, this.scale.width - this.player.displayWidth / 2);
+    const minY = (this.playerBaseY ?? this.player.y) - 200;
+    const maxY = (this.playerBaseY ?? this.player.y) + 200;
+    this.player.y = Phaser.Math.Clamp(this.player.y + vy, minY, maxY);
 
     // Tilt ship based on horizontal input
     let targetAngle = 0;
@@ -305,6 +313,7 @@ export default class GameScene extends Phaser.Scene {
     bullet.setDepth(5);
     bullet.body.setSize(bullet.width * this.hitboxes.bulletWidthFactor, bullet.height * this.hitboxes.bulletHeightFactor).setOffset(0, 0);
     this.attachBulletTrail(bullet);
+    this.playShotSound(0.7);
     this.ammo -= 1;
     this.updateAmmoText();
     if (this.ammo <= 0) {
@@ -334,6 +343,7 @@ export default class GameScene extends Phaser.Scene {
       bullet.setAngle(Phaser.Math.RadToDeg(angleToPlayer) + 90);
       bullet.setDepth(4);
       bullet.body.setSize(bullet.width * this.hitboxes.bulletWidthFactor, bullet.height * this.hitboxes.bulletHeightFactor).setOffset(0, 0);
+      this.playShotSound(0.55);
     });
   }
 
@@ -397,8 +407,28 @@ export default class GameScene extends Phaser.Scene {
   }
 
   handlePlayerHit(player, enemy) {
-    enemy.disableBody(true, true);
-    this.damagePlayer();
+    if (!player?.active || !enemy?.active) return;
+
+    const now = this.time.now;
+    if (now < (this.playerCollisionPauseUntil ?? 0)) return; // ütközés után 3s védettség
+    this.playerCollisionPauseUntil = now + 3000;
+
+    const cooldownUntil = enemy.getData('collisionCooldownUntil') ?? 0;
+    if (now < cooldownUntil) return; // ne sebezzen minden frame-ben
+    enemy.setData('collisionCooldownUntil', now + 450);
+
+    const typeKey = enemy.getData('typeKey') || enemy.texture?.key;
+    const playerDamage = typeKey === 'enemyShip3' ? 2 : 1;
+    this.damagePlayer(playerDamage);
+
+    const remainingHp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
+    enemy.hp = remainingHp;
+    if (remainingHp <= 0) {
+      enemy.disableBody(true, true);
+      this.addExplosion(enemy.x, enemy.y);
+    } else {
+      this.addExplosion(enemy.x, enemy.y, 10, 0xffa64d);
+    }
   }
 
   handlePlayerHitByBullet(player, bullet) {
@@ -476,9 +506,13 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  damagePlayer() {
+  playShotSound(volume = 0.65) {
+    this.sound?.play('shot', { volume });
+  }
+
+  damagePlayer(amount = 1) {
     if (!this.player.active) return;
-    this.playerHp = Math.max(0, this.playerHp - 1);
+    this.playerHp = Math.max(0, this.playerHp - amount);
     this.addExplosion(this.player.x, this.player.y, 8, 0xff5555);
     this.updateHealthBar();
     if (this.playerHp <= 0) {

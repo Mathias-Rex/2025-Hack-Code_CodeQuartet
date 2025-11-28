@@ -4,7 +4,7 @@ export default class BootScene extends Phaser.Scene {
     if (window.__DEBUG__ === undefined) {
       window.__DEBUG__ = true;
     }
-    if (window.__DEBUG__ = true) console.warning("DEBUG MODE IS ON!!!")
+    if (window.__DEBUG__ === true) console.warn('DEBUG MODE IS ON!!!');
 
     if (!window.__GAME_SETTINGS__) {
       window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true, musicVolume: 0.6 };
