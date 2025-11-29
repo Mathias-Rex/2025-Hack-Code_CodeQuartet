@@ -56,7 +56,8 @@ _(Illusztráció: ![Gameplay](assets/docs/screenshots/gameplay1.png))_
 ## 🧑‍💻 Helyi futtatás
 1) Követelmény: modern böngésző (helyi file:// betöltést támogassa).
 2) Klónozd a repót.
-3) Nyisd meg az `index.html`-t a böngészőben (duplakatt vagy `file:///.../index.html`).
+3) Nyisd meg az `index.html`-t a böngészőben (duplakatt vagy `file:///.../index.html`, de CORS hibe miatt módosított böngésző kell).
+   - VSCode-van Live Server plugin. Gol Live gomb jobb alsó sarokban.
    - Ha szeretnéd kiszolgálni, futtathatsz egyszerű statikus szervert is: pl. `python -m http.server 3000`.
 
 ## 🚚 Deploy
