@@ -23,6 +23,7 @@ Egy gyors tempójú űrshooter, ahol hullámokban érkező ellenségeket kell t�
 ## 🔗 Linkek
 - Repo: https://github.com/Mathias-Rex/2025-Hack-Code_CodeQuartet  
 - Élő verzió (GitHub Pages): https://mathias-rex.github.io/2025-Hack-Code_CodeQuartet/
+- Dokumentáció: https://docs.google.com/document/d/13NXcpiW93O5UR7akSgF4HZ35JAJh8hIl-QbO46UiaiU/edit?tab=t.0
 
 ## 📜 Sztori
 A kolónia utolsó vadászpilótájaként feladatod áttörni az ellenség blokádján. A pajzsok és a fegyverek közti okos váltás a kulcs a túléléshez.
@@ -81,6 +82,11 @@ _(Illusztráció: ![Gameplay](assets/docs/screenshots/gameplay1.png))_
   - VSCode: IDE
   - Github: Verziókezelés
   - Photopea: game assetek javítása, áttlátszó háttér
+
+## 🧵 Verziókezelés
+- **Minden fejlesztő saját branchen dolgozott**
+- A `main` a védett branch.
+- A `release/vX.X` őrzik az egyes késznek nyilvánított állaptot.
 
 ## 📄 Licenc
 - MIT (lásd `LICENSE`).
