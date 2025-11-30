@@ -9,6 +9,7 @@ const DEMO_SUBTITLE_FADE_IN_MS = 800;
 const CREDITS_SEQUENCE_FADE_OUT_MS = 900;
 const CREDITS_NAME_FADE_IN_MS = 700;
 const CREDITS_NAME_FADE_OUT_MS = 700;
+const TRAILER_FADE_MS = 800;
 
 export default class IntroScene extends Phaser.Scene {
   constructor() { super('Intro'); }
@@ -28,6 +29,9 @@ export default class IntroScene extends Phaser.Scene {
     this.introFlowStarted = false;
     this.skipReady = false;
     this.waitingForStart = true;
+    this.trailerFinished = !!window.__TRAILER_SHOWN__;
+    this.trailerWasSkipped = false;
+    this.trailerFaded = false;
 
     this.introTitle = this.add.text(width / 2, height / 2 - 40, 'Code Quartet Studios', {
       fontFamily: 'Arial',
@@ -54,7 +58,7 @@ export default class IntroScene extends Phaser.Scene {
     });
     this.activeTweens.push(this.introSubtitleTween);
 
-    this.startPrompt = this.add.text(width / 2, height - 80, 'Press any key to start', {
+    this.startPrompt = this.add.text(width / 2, height - 80, 'press any button to start', {
       fontFamily: 'Arial',
       fontSize: 24,
       color: '#9fd6ff'
@@ -71,10 +75,43 @@ export default class IntroScene extends Phaser.Scene {
 
     this.finished = false;
     this.setupIntroSound();
+    this.setupTrailer();
     this.enableStartThenSkip();
 
     this.showOutbackTimer = this.registerTimer(this.time.delayedCall(5000, () => this.showOutbackTitle()));
     if (this.showOutbackTimer) this.showOutbackTimer.paused = true;
+  }
+
+  setupTrailer() {
+    if (window.__TRAILER_SHOWN__) return;
+    const { width, height } = this.scale;
+    this.loadingText = this.add.text(width / 2, height / 2, 'Loading...', {
+      fontFamily: 'Arial',
+      fontSize: 28,
+      color: '#cfe9ff'
+    }).setOrigin(0.5).setDepth(5);
+
+    const size = Math.min(width, height) / 2;
+    this.trailer = this.add.video(width / 2, height / 2, 'trailerVideo')
+      .setDisplaySize(size, size)
+      .setDepth(-2)
+      .setAlpha(0);
+
+    this.trailer.once('play', () => {
+      this.loadingText?.setVisible(false);
+      this.trailer.setAlpha(1);
+    });
+
+    this.trailer.once('complete', () => {
+      if (this.trailerFinished) return;
+      this.trailerFinished = true;
+      this.fadeTrailerToBlack(false);
+      this.startPromptTween?.restart();
+      this.startPromptTween?.play();
+    });
+
+    // start playback immediately
+    this.trailer.play(false);
   }
 
   setupIntroSound() {
@@ -151,23 +188,12 @@ export default class IntroScene extends Phaser.Scene {
   enableStartThenSkip() {
     this.startHandler = () => {
       if (this.finished || !this.waitingForStart) return;
-      this.waitingForStart = false;
-      if (this.startPromptTween) this.startPromptTween.stop();
-      this.startPrompt?.destroy();
-      const bgFade = this.tweens.add({
-        targets: this.introBg,
-        alpha: 0.35,
-        duration: INTRO_BG_FADE_IN_MS,
-        ease: 'Sine.easeOut',
-        onComplete: () => {
-          const pauseBeforeTitle = this.registerTimer(this.time.delayedCall(STUDIOS_TITLE_DELAY_MS, () => {
-            this.startIntroFlow();
-            this.startIntroPlayback();
-          }));
-          if (pauseBeforeTitle) this.activeTimers.push(pauseBeforeTitle);
-        }
-      });
-      this.activeTweens.push(bgFade);
+      if (!this.trailerFinished) {
+        this.trailerWasSkipped = true;
+        this.fadeTrailerToBlack(true);
+        return;
+      }
+      this.beginIntroSequence();
     };
 
     this.skipHandler = () => {
@@ -188,6 +214,46 @@ export default class IntroScene extends Phaser.Scene {
       this.input.keyboard.off('keydown-SPACE', this.skipHandler);
       this.input.off('pointerdown', this.startHandler);
     });
+  }
+
+  beginIntroSequence() {
+    if (this.finished || !this.waitingForStart) return;
+    this.waitingForStart = false;
+    this.cameras.main.fadeIn(TRAILER_FADE_MS, 0, 0, 0);
+    if (this.startPromptTween) this.startPromptTween.stop();
+    this.startPrompt?.destroy();
+    const bgFade = this.tweens.add({
+      targets: this.introBg,
+      alpha: 0.35,
+      duration: INTRO_BG_FADE_IN_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        const pauseBeforeTitle = this.registerTimer(this.time.delayedCall(STUDIOS_TITLE_DELAY_MS, () => {
+          this.startIntroFlow();
+          this.startIntroPlayback();
+        }));
+        if (pauseBeforeTitle) this.activeTimers.push(pauseBeforeTitle);
+      }
+    });
+    this.activeTweens.push(bgFade);
+  }
+
+  fadeTrailerToBlack(startIntroAfterFade) {
+    if (this.trailerFaded) return;
+    this.trailerFaded = true;
+    if (this.trailer) {
+      if (this.trailer.isPlaying()) this.trailer.stop();
+      this.trailer.setVisible(false).setAlpha(0);
+      this.trailer.destroy();
+      this.trailer = null;
+    }
+    window.__TRAILER_SHOWN__ = true;
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      if (startIntroAfterFade) {
+        this.beginIntroSequence();
+      }
+    });
+    this.cameras.main.fadeOut(TRAILER_FADE_MS, 0, 0, 0);
   }
 
   showOutbackTitle() {
