@@ -162,7 +162,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image('gameBg', 'assets/images/background.png');
     this.load.image('playerShip', 'assets/sprites/playership1.png');
     this.load.image('enemyShip', 'assets/sprites/enemyship1.png');
     this.load.image('enemyShip2', 'assets/sprites/enemyship2.png');
