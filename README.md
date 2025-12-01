@@ -15,6 +15,7 @@
 - [Fejlesztők](#-fejlesztők)
 - [Eszközök (AI és nem AI)](#-eszközök-ai-és-nem-ai)
 - [Beadás (tömörítés / megosztás)](#-beadás-tömörítés--megosztás)
+- [Verziókezelés](#-verziókezelés)
 - [Licenc](#-licenc)
 
 ## 🎮 Áttekintés

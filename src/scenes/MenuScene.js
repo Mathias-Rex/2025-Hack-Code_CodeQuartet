@@ -13,7 +13,7 @@ export default class MenuScene extends Phaser.Scene {
       .setDisplaySize(width, height)
       .setDepth(-1);
 
-    this.title = this.add.text(width / 2, height / 2 - 120, 'THE BACK of BEYOND', {
+    this.title = this.add.text(width / 2, height / 2 - 120, 'THE BACK OF BEYOND', {
       fontFamily: 'Arial',
       fontSize: 110,
       fontStyle: 'bold',
