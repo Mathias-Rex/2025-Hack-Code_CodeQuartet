@@ -301,7 +301,7 @@ export default class IntroScene extends Phaser.Scene {
         ease: 'Sine.easeInOut'
       });
       this.activeTweens.push(subTween);
-      this.typewriteText(this.outbackSubtitle, 'demo', 120);
+      this.typewriteText(this.outbackSubtitle, '', 120);
     });
 
     this.registerTimer(this.time.delayedCall(10000, () => this.startCreditsSequence()));
