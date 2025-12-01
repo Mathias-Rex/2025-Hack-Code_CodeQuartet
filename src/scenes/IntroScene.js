@@ -41,7 +41,7 @@ export default class IntroScene extends Phaser.Scene {
     }).setOrigin(0.5).setShadow(0, 0, '#00c2ff', 18, true, true);
     this.introTitle.setAlpha(0);
 
-    this.introSubtitle = this.add.text(width / 2, height / 2 + 16, 'bemutatja', {
+    this.introSubtitle = this.add.text(width / 2, height / 2 + 16, 'presents', {
       fontFamily: 'Arial',
       fontSize: 24,
       color: '#c6d6ff'
@@ -58,7 +58,7 @@ export default class IntroScene extends Phaser.Scene {
     });
     this.activeTweens.push(this.introSubtitleTween);
 
-    this.startPrompt = this.add.text(width / 2, height - 80, 'press any button to start', {
+    this.startPrompt = this.add.text(width / 2, height - 80, 'Press any key to start', {
       fontFamily: 'Arial',
       fontSize: 24,
       color: '#9fd6ff'
@@ -85,11 +85,6 @@ export default class IntroScene extends Phaser.Scene {
   setupTrailer() {
     if (window.__TRAILER_SHOWN__) return;
     const { width, height } = this.scale;
-    this.loadingText = this.add.text(width / 2, height / 2, 'Loading...', {
-      fontFamily: 'Arial',
-      fontSize: 28,
-      color: '#cfe9ff'
-    }).setOrigin(0.5).setDepth(5);
 
     const size = Math.min(width, height) / 2;
     this.trailer = this.add.video(width / 2, height / 2, 'trailerVideo')
@@ -293,7 +288,7 @@ export default class IntroScene extends Phaser.Scene {
     });
     this.activeTweens.push(titleTween);
 
-    this.typewriteText(this.outbackTitle, 'T H E BACK of BEYOND', 80, () => {
+    this.typewriteText(this.outbackTitle, 'The Back of Beyond', 80, () => {
       const subTween = this.tweens.add({
         targets: this.outbackSubtitle,
         alpha: 1,
