@@ -153,7 +153,7 @@ export default class GameScene extends Phaser.Scene {
     this.weaponIconRed = null;
     this.beamSprite = null;
     this.pickupFallSpeedGear = 70;
-    this.pickupFallSpeedShield = 60;
+    this.pickupFallSpeedShield = 70;
     this.playerShield = null;
     this.starSpeedMultiplier = 1;
     this.starSpeedLerp = 0.08;
@@ -207,7 +207,6 @@ export default class GameScene extends Phaser.Scene {
     this.createBulletTexture('enemyBullet', 5, 12, 0xff8a7a);
     this.createBulletTexture('playerBeam', 4, 18, 0xff4d4d);
     this.createGearTexture('gearPickup');
-    this.createShieldTexture('shieldPickup');
 
     this.player = this.createPlayer();
     this.playerBaseY = this.player.y;
@@ -527,27 +526,6 @@ export default class GameScene extends Phaser.Scene {
     drawCog(size / 2 + 12, size / 2 - 6, size / 4, 7);
     drawCog(size / 2 + 6, size / 2 + 12, size / 5, 5);
     g.generateTexture(key, size, size);
-    g.destroy();
-  }
-
-  createShieldTexture(key) {
-    if (this.textures.exists(key)) return;
-    const g = this.make.graphics({ x: 0, y: 0, add: false });
-    const w = 48;
-    const h = 60;
-    g.clear();
-    g.fillStyle(0x9aa0ab, 0.9);
-    g.lineStyle(3, 0xcfd4de, 1);
-    g.beginPath();
-    g.moveTo(w / 2, 0);
-    g.lineTo(w, h * 0.3);
-    g.lineTo(w * 0.75, h);
-    g.lineTo(w * 0.25, h);
-    g.lineTo(0, h * 0.3);
-    g.closePath();
-    g.fillPath();
-    g.strokePath();
-    g.generateTexture(key, w, h);
     g.destroy();
   }
 
@@ -1400,10 +1378,11 @@ export default class GameScene extends Phaser.Scene {
     gear.setDepth(8);
     gear.setVelocity(0, this.pickupFallSpeedGear ?? 40);
     gear.setImmovable(true);
-    if (gear.body?.setCircle) {
-      const r = (gear.displayWidth ?? gear.width) / 2;
-      const offset = (gear.displayWidth / 2) - r;
-      gear.body.setCircle(r, offset, offset);
+    if (gear.body?.setSize && gear.body?.setOffset) {
+      const w = gear.displayWidth ?? gear.width ?? 0;
+      const h = gear.displayHeight ?? gear.height ?? 0;
+      gear.body.setSize(w, h);
+      gear.body.setOffset(-w / 2, -h / 2);
     }
     gear.setInteractive({ useHandCursor: true });
     gear.removeAllListeners('pointerup');
@@ -1412,7 +1391,7 @@ export default class GameScene extends Phaser.Scene {
       this.handleGearPickup(this.player, gear);
     });
     this.removePickupHitbox(gear);
-    gear.setData('hitboxViz', null); // hitbox vizuálisan rejtve
+    gear.setData('hitboxViz', null); 
   }
 
   spawnShieldPickup(enemy) {
@@ -1421,10 +1400,19 @@ export default class GameScene extends Phaser.Scene {
     const shield = this.shieldPickups.get(enemy.x, enemy.y, 'shieldPickup');
     if (!shield) return;
     shield.enableBody(true, enemy.x, enemy.y, true, true);
+    shield.setDisplaySize(shield.width / 8, shield.height / 8);
     shield.setActive(true).setVisible(true);
     shield.setDepth(8);
-    shield.setVelocity(0, this.pickupFallSpeedShield ?? 30);
+    shield.setVelocity(0, this.pickupFallSpeedShield ?? 40);
     shield.setImmovable(true);
+    if (shield.body?.setSize && shield.body?.setOffset) {
+      const w = shield.displayWidth ?? shield.width ?? 0;
+      const h = shield.displayHeight ?? shield.height ?? 0;
+      shield.body.setSize(w, h);
+      shield.body.setOffset(-w / 2, -h / 2);
+    }
+    this.removePickupHitbox(shield);
+    shield.setData('hitboxViz', null);
   }
 
   handleGearPickup(_player, gear) {
@@ -1923,6 +1911,32 @@ export default class GameScene extends Phaser.Scene {
       if (!bullet.active || !bullet.body) return;
       this.debugGfx.strokeRect(bullet.body.x, bullet.body.y, bullet.body.width, bullet.body.height);
     });
+
+    // Gear pickups
+    if (this.gearPickups) {
+      this.debugGfx.lineStyle(1, 0xffd84d, 0.9);
+      this.gearPickups.children.each((pickup) => {
+        if (!pickup.active || !pickup.body) return;
+        const w = pickup.displayWidth ?? pickup.width;
+        const h = pickup.displayHeight ?? pickup.height;
+        const x = pickup.body?.x ?? (pickup.x - w / 2);
+        const y = pickup.body?.y ?? (pickup.y - h / 2);
+        this.debugGfx.strokeRect(x, y, w, h);
+      });
+    }
+
+    // Shield pickups
+    if (this.shieldPickups) {
+      this.debugGfx.lineStyle(1, 0x7cf4ff, 0.9);
+      this.shieldPickups.children.each((pickup) => {
+        if (!pickup.active || !pickup.body) return;
+        const w = pickup.displayWidth ?? pickup.width;
+        const h = pickup.displayHeight ?? pickup.height;
+        const x = pickup.body?.x ?? (pickup.x - w / 2);
+        const y = pickup.body?.y ?? (pickup.y - h / 2);
+        this.debugGfx.strokeRect(x, y, w, h);
+      });
+    }
 
     // Player HP text
     if (this.player?.body) {
