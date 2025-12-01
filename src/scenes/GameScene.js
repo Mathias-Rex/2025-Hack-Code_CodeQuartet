@@ -95,9 +95,9 @@ export default class GameScene extends Phaser.Scene {
     this.enemySpawnDelay = 900;
     this.enemyMaxHp = 4;
     this.enemyTypes = [
-      { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 4, scaleMul: 1, weight: 6, hitboxFactor: 5 },    // leggyakoribb
-      { key: 'enemyShip2', speed: { min: 220, max: 320 }, hp: 2, scaleMul: 1, weight: 4, hitboxFactor: 5, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
-      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 7, scaleMul: 2, weight: 1, hitboxFactor: 2.5 }   // legritkább, kisebb hitbox
+      { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 4, scaleMul: 1, weight: 6, hitboxFactor: 1.6 },    // leggyakoribb
+      { key: 'enemyShip2', speed: { min: 220, max: 320 }, hp: 2, scaleMul: 1, weight: 4, hitboxFactor: 1.6, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
+      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 7, scaleMul: 2, weight: 1, hitboxFactor: 1.1 }   // legritkább, kisebb hitbox (0.35% of previous)
     ];
     this.maxAmmoBlue = 15;
     this.maxAmmoRed = 1; // lézer időalapú
@@ -461,13 +461,13 @@ export default class GameScene extends Phaser.Scene {
   createPlayer() {
     const { width, height } = this.scale;
     const sprite = this.physics.add.sprite(width / 2, height * 0.82, 'playerShip');
-    const targetWidth = Math.min(120, width * 0.18);
+    const targetWidth = 100;
     const scale = targetWidth / sprite.width;
     sprite.setScale(scale);
     sprite.setDepth(6);
     sprite.setCollideWorldBounds(true);
     sprite.setDamping(true).setDrag(0.85).setMaxVelocity(this.playerSpeed);
-    const hitboxRadius = (sprite.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
+    const hitboxRadius = (sprite.displayWidth * this.hitboxes.playerRadiusFactor) / 4; // half-size hitbox
     sprite.body.setCircle(hitboxRadius);
     sprite.body.setOffset(
       sprite.displayOriginX - hitboxRadius,
@@ -1198,19 +1198,19 @@ export default class GameScene extends Phaser.Scene {
   createWeaponIcons() {
     const { width } = this.scale;
     const { height } = this.scale;
-    const size = 52;
-    const gap = 12;
+    const size = 65; // 25% larger than original 52
+    const gap = 10;
     const y = 16 + 36 + 16; // HP sáv alatt
-    this.weaponIconBlue = this.add.rectangle(0, y, size, size, 0x4da0ff, 0.4)
-      .setStrokeStyle(2, 0x4da0ff, 0.9)
+    this.weaponIconBlue = this.add.image(0, y, 'weaponIconBlue')
       .setOrigin(0, 0)
       .setDepth(9)
-      .setScrollFactor(0);
-    this.weaponIconRed = this.add.rectangle(0, y, size, size, 0xff5a5a, 0.4)
-      .setStrokeStyle(2, 0xff5a5a, 0.9)
+      .setScrollFactor(0)
+      .setDisplaySize(size, size);
+    this.weaponIconRed = this.add.image(0, y, 'weaponIconRed')
       .setOrigin(0, 0)
       .setDepth(9)
-      .setScrollFactor(0);
+      .setScrollFactor(0)
+      .setDisplaySize(size, size);
     this.weaponIconBlue.setX(width - (size * 2 + gap * 2));
     this.weaponIconRed.setX(width - (size + gap));
     this.updateWeaponIconState();
@@ -1219,8 +1219,8 @@ export default class GameScene extends Phaser.Scene {
   positionWeaponIcons() {
     if (!this.weaponIconBlue || !this.weaponIconRed) return;
     const { width } = this.scale;
-    const size = this.weaponIconBlue.width;
-    const gap = 12;
+    const size = this.weaponIconBlue.displayWidth;
+    const gap = 10;
     this.weaponIconBlue.setX(width - (size * 2 + gap * 2));
     this.weaponIconRed.setX(width - (size + gap));
     const y = 16 + 36 + 16;
@@ -1231,8 +1231,8 @@ export default class GameScene extends Phaser.Scene {
   updateWeaponIconState() {
     if (!this.weaponIconBlue || !this.weaponIconRed) return;
     const activeBlue = this.currentWeapon === 'blue';
-    this.weaponIconBlue.setAlpha(activeBlue ? 0.95 : 0.25);
-    this.weaponIconRed.setAlpha(activeBlue ? 0.25 : 0.95);
+    this.weaponIconBlue.setAlpha(activeBlue ? 1 : 0.5);
+    this.weaponIconRed.setAlpha(activeBlue ? 0.5 : 1);
   }
 
   fireRedBeam(time) {
@@ -1870,7 +1870,7 @@ export default class GameScene extends Phaser.Scene {
       } else if (body) {
         this.debugGfx.strokeRect(body.x, body.y, body.width, body.height);
       } else {
-        const radius = (this.player.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
+        const radius = (this.player.displayWidth * this.hitboxes.playerRadiusFactor) / 4;
         this.debugGfx.strokeCircle(this.player.x, this.player.y, radius);
       }
     }

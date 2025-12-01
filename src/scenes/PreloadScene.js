@@ -33,6 +33,8 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image('enemyShip3', 'assets/sprites/enemyship3.png');
     this.load.image('shieldPickup', 'assets/sprites/shield.png');
     this.load.image('gearPickup', 'assets/sprites/hp.png');
+    this.load.image('weaponIconBlue', 'assets/sprites/autocannon.png');
+    this.load.image('weaponIconRed', 'assets/sprites/lasergun.png');
 
   }
 
