@@ -7,6 +7,7 @@ export default class MenuScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#0f172a');
     this.cameras.main.fadeIn(600, 0, 0, 0);
     this.gameSettings = window.__GAME_SETTINGS__ || (window.__GAME_SETTINGS__ = { musicEnabled: true, sfxEnabled: true });
+    this.startOptionsVisible = false;
 
     this.add.image(width / 2, height / 2, 'menuBg')
       .setDisplaySize(width, height)
@@ -21,8 +22,10 @@ export default class MenuScene extends Phaser.Scene {
 
     this.musicVolume = this.gameSettings.musicVolume ?? 0.6;
     this.musicEnabled = this.gameSettings.musicEnabled ?? this.musicVolume > 0.001;
+    this.musicTrack = this.gameSettings.musicTrack ?? 'cosmic'; // 'cosmic' | 'chill'
     this.gameSettings.musicVolume = this.musicVolume;
     this.gameSettings.musicEnabled = this.musicEnabled;
+    this.gameSettings.musicTrack = this.musicTrack;
     this.sfxEnabled = this.gameSettings.sfxEnabled ?? true;
     this.transitioning = false;
 
@@ -39,27 +42,27 @@ export default class MenuScene extends Phaser.Scene {
       return true;
     };
 
-    const startCampaign = () => {
+    const startGame = () => {
       if (!beginSceneTransition()) return;
-      this.transitionToScene('Game');
+      const cam = this.cameras.main;
+      cam.fadeOut(800, 0, 0, 0); // lassú sötétítés
+      cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+        this.time.delayedCall(1000, () => {
+          this.scene.start('Game');
+        });
+      });
     };
 
-    const startTycoon = () => {
-      if (!beginSceneTransition()) return;
-      this.transitionToScene('Tycoon');
-    };
-
-    const startBtn = this.createButton(width / 2, height / 2 + 70, 'Start', () => this.showStartOptions());
+    const startBtn = this.createButton(width / 2, height / 2 + 70, 'Start', startGame);
     this.startButton = startBtn;
     this.startButtonRect = startBtn.rect;
 
     const settingsBtn = this.createButton(width / 2, height / 2 + 220, 'Settings', () => this.showSettingsMenu());
     this.settingsButton = settingsBtn;
     this.settingsButtonRect = settingsBtn.rect;
-    this.createStartOptionsMenu(startCampaign, startTycoon);
 
     this.input.keyboard.once('keydown-ENTER', () => {
-      startCampaign();
+      startGame();
     });
     this.input.keyboard.on('keydown-ESC', () => {
       if (this.startOptionsVisible && !this.isSettingsOpen) this.hideStartOptions();
@@ -228,22 +231,27 @@ export default class MenuScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.65)
       .setOrigin(0.5);
-    const panel = this.add.rectangle(0, 0, 520, 420, 0x0a1a32, 0.96)
+    const panelWidth = 520;
+    const panelHeight = 520;
+    const panel = this.add.rectangle(0, 0, panelWidth, panelHeight, 0x0a1a32, 0.96)
       .setOrigin(0.5)
       .setStrokeStyle(4, 0x5de1ff);
-    const title = this.add.text(0, -160, 'Settings', {
+    const title = this.add.text(0, -panelHeight / 2 + 60, 'Settings', {
       fontFamily: 'Arial',
       fontSize: 42,
       color: '#ffffff'
     }).setOrigin(0.5);
 
-    const musicSlider = this.createVolumeSlider(-80, this.musicVolume, (value) => this.setMusicVolume(value, false));
-    const sfxToggle = this.createSettingsButton(20, () => this.toggleSfx(), 'Sound Effect: ');
-    const back = this.createSettingsButton(140, () => this.hideSettingsMenu(), 'Back');
+    const musicSlider = this.createVolumeSlider(-90, this.musicVolume, (value) => this.setMusicVolume(value, false));
+    const trackToggle = this.createSettingsButton(-10, () => this.toggleMusicTrack(), '<Cosmic Pulse>');
+    const sfxToggle = this.createSettingsButton(90, () => this.toggleSfx(), 'Sound Effect: ');
+    const back = this.createSettingsButton(190, () => this.hideSettingsMenu(), 'Back');
 
-    this.settingsContainer.add([overlay, panel, title, musicSlider, sfxToggle.button, sfxToggle.text, back.button, back.text]);
+    this.settingsContainer.add([overlay, panel, title, musicSlider, trackToggle.button, trackToggle.text, sfxToggle.button, sfxToggle.text, back.button, back.text]);
     this.musicVolumeSlider = musicSlider;
+    this.musicTrackText = trackToggle.text;
     this.sfxToggleText = sfxToggle.text;
+    this.updateMusicTrackLabel();
     this.updateSfxToggleLabel();
   }
 
@@ -300,6 +308,17 @@ export default class MenuScene extends Phaser.Scene {
     this.sfxEnabled = !this.sfxEnabled;
     this.gameSettings.sfxEnabled = this.sfxEnabled;
     this.updateSfxToggleLabel();
+  }
+
+  toggleMusicTrack() {
+    this.musicTrack = this.musicTrack === 'cosmic' ? 'chill' : 'cosmic';
+    this.gameSettings.musicTrack = this.musicTrack;
+    this.updateMusicTrackLabel();
+  }
+
+  updateMusicTrackLabel() {
+    if (!this.musicTrackText) return;
+    this.musicTrackText.setText(this.musicTrack === 'cosmic' ? '<Cosmic Pulse>' : '<Island of Chill>');
   }
 
   updateSfxToggleLabel() {

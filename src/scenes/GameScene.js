@@ -93,16 +93,18 @@ export default class GameScene extends Phaser.Scene {
     this.lastShip3SpawnAt = 0;
     this.lastShip3SpawnAt = 0;
     this.enemySpawnDelay = 900;
-    this.enemyMaxHp = 3;
+    this.enemyMaxHp = 4;
     this.enemyTypes = [
-      { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 3, scaleMul: 1, weight: 6, hitboxFactor: 5 },    // leggyakoribb
-      { key: 'enemyShip2', speed: { min: 220, max: 320 }, hp: 1, scaleMul: 1, weight: 4, hitboxFactor: 5, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
-      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 6, scaleMul: 2, weight: 1, hitboxFactor: 2.5 }   // legritkább, kisebb hitbox
+      { key: 'enemyShip', speed: { min: 90, max: 160 }, hp: 4, scaleMul: 1, weight: 6, hitboxFactor: 1.6 },    // leggyakoribb
+      { key: 'enemyShip2', speed: { min: 220, max: 320 }, hp: 2, scaleMul: 1, weight: 4, hitboxFactor: 1.6, waveAmp: 120, waveFreq: 0.0025 },  // gyakoribb spawn, gyorsabb, kanyargó
+      { key: 'enemyShip3', speed: { min: 55, max: 95 }, hp: 7, scaleMul: 2, weight: 1, hitboxFactor: 1.1 }   // legritkább, kisebb hitbox (0.35% of previous)
     ];
     this.maxAmmoBlue = 15;
     this.maxAmmoRed = 1; // lézer időalapú
     this.maxAmmo = this.maxAmmoBlue;
-    this.ammo = this.maxAmmo;
+    this.ammoBlue = this.maxAmmoBlue;
+    this.ammoRed = this.maxAmmoRed;
+    this.ammo = this.ammoBlue;
     this.reloadTime = 3000;
     this.reloadTimeAlt = 3000;
     this.redFireDuration = 3000;
@@ -110,6 +112,11 @@ export default class GameScene extends Phaser.Scene {
     this.redFiringUntil = 0;
     this.redBeamLength = 500;
     this.reloading = false;
+    this.reloadingBlue = false;
+    this.reloadingRed = false;
+    this.reloadEndTime = null;
+    this.reloadEndTimeBlue = null;
+    this.reloadEndTimeRed = null;
     this.redNextReloadDue = 0;
     this.playerMaxHp = 5;
     this.playerHp = this.playerMaxHp;
@@ -118,6 +125,8 @@ export default class GameScene extends Phaser.Scene {
     this.gameSettings.musicVolume = this.musicVolume;
     if (this.gameSettings.musicEnabled === undefined) this.gameSettings.musicEnabled = this.musicVolume > 0.001;
     if (this.gameSettings.sfxEnabled === undefined) this.gameSettings.sfxEnabled = true;
+    if (!this.gameSettings.musicTrack) this.gameSettings.musicTrack = 'cosmic';
+    this.gameMusicKey = null;
     this.isPaused = false;
     this.pauseSettingsVisible = false;
     this.pauseContainer = null;
@@ -129,6 +138,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemyKillCount = 0;
     this.survivalStartTime = 0;
     this.gameOver = false;
+    this.gameOverTransitioning = false;
     this.gameOverOverlay = null;
     this.hitboxes = {
       playerRadiusFactor: 4,
@@ -143,7 +153,7 @@ export default class GameScene extends Phaser.Scene {
     this.weaponIconRed = null;
     this.beamSprite = null;
     this.pickupFallSpeedGear = 70;
-    this.pickupFallSpeedShield = 60;
+    this.pickupFallSpeedShield = 70;
     this.playerShield = null;
     this.starSpeedMultiplier = 1;
     this.starSpeedLerp = 0.08;
@@ -152,24 +162,33 @@ export default class GameScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image('gameBg', 'assets/images/background.png');
     this.load.image('playerShip', 'assets/sprites/playership1.png');
     this.load.image('enemyShip', 'assets/sprites/enemyship1.png');
     this.load.image('enemyShip2', 'assets/sprites/enemyship2.png');
     this.load.image('enemyShip3', 'assets/sprites/enemyship3.png');
+    this.load.image('gearPickup', 'assets/sprites/hp.png');
   }
 
   create() {
-    this.cameras.main.fadeIn(400, 0, 0, 0);
+    // no initial flash; menu already faded to black before switching scenes
     this.physics.world.setBounds(0, 0, this.scale.width, this.scale.height);
 
     this.sound.stopByKey('gameMusic');
+    this.sound.stopByKey('gameMusicAlt');
     this.setupMusic();
 
     // reset per-run state
     this.reloading = false;
+    this.reloadingBlue = false;
+    this.reloadingRed = false;
     this.reloadEndTime = null;
-    this.ammo = this.maxAmmo;
+    this.reloadEndTimeBlue = null;
+    this.reloadEndTimeRed = null;
+    this.maxAmmo = this.currentWeapon === 'red' ? this.maxAmmoRed : this.maxAmmoBlue;
+    this.ammoBlue = this.maxAmmoBlue;
+    this.ammoRed = this.maxAmmoRed;
+    this.ammo = this.currentWeapon === 'red' ? this.ammoRed : this.ammoBlue;
+    this.reloadEndTime = this.currentWeapon === 'red' ? this.reloadEndTimeRed : this.reloadEndTimeBlue;
     this.playerHp = this.playerMaxHp;
     this.starSpeedMultiplier = 1;
     this.playerCollisionPauseUntil = 0;
@@ -187,7 +206,6 @@ export default class GameScene extends Phaser.Scene {
     this.createBulletTexture('enemyBullet', 5, 12, 0xff8a7a);
     this.createBulletTexture('playerBeam', 4, 18, 0xff4d4d);
     this.createGearTexture('gearPickup');
-    this.createShieldTexture('shieldPickup');
 
     this.player = this.createPlayer();
     this.playerBaseY = this.player.y;
@@ -253,7 +271,7 @@ export default class GameScene extends Phaser.Scene {
       strokeThickness: 2
     }).setDepth(10).setOrigin(0, 0).setVisible(false);
     this.loadedBox = this.add.rectangle(0, 0, 10, 10).setOrigin(0, 0).setDepth(9).setStrokeStyle(2, 0xffd84d).setVisible(false);
-    this.reloadEndTime = null;
+    this.reloadEndTime = this.currentWeapon === 'red' ? this.reloadEndTimeRed : this.reloadEndTimeBlue;
 
     this.createHealthBar();
     this.createWeaponIcons();
@@ -367,6 +385,8 @@ export default class GameScene extends Phaser.Scene {
     this.updateShields();
     this.updateEnemyShooting(time);
     this.cleanupEntities();
+    this.checkGearTouch();
+    this.syncPickupHitboxes();
     this.updateReloadCountdown(time);
     if (this.debug) this.drawDebugHitboxes();
     this.checkVictoryConditions(time);
@@ -440,13 +460,13 @@ export default class GameScene extends Phaser.Scene {
   createPlayer() {
     const { width, height } = this.scale;
     const sprite = this.physics.add.sprite(width / 2, height * 0.82, 'playerShip');
-    const targetWidth = Math.min(120, width * 0.18);
+    const targetWidth = 100;
     const scale = targetWidth / sprite.width;
     sprite.setScale(scale);
     sprite.setDepth(6);
     sprite.setCollideWorldBounds(true);
     sprite.setDamping(true).setDrag(0.85).setMaxVelocity(this.playerSpeed);
-    const hitboxRadius = (sprite.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
+    const hitboxRadius = (sprite.displayWidth * this.hitboxes.playerRadiusFactor) / 4; // half-size hitbox
     sprite.body.setCircle(hitboxRadius);
     sprite.body.setOffset(
       sprite.displayOriginX - hitboxRadius,
@@ -505,27 +525,6 @@ export default class GameScene extends Phaser.Scene {
     drawCog(size / 2 + 12, size / 2 - 6, size / 4, 7);
     drawCog(size / 2 + 6, size / 2 + 12, size / 5, 5);
     g.generateTexture(key, size, size);
-    g.destroy();
-  }
-
-  createShieldTexture(key) {
-    if (this.textures.exists(key)) return;
-    const g = this.make.graphics({ x: 0, y: 0, add: false });
-    const w = 48;
-    const h = 60;
-    g.clear();
-    g.fillStyle(0x9aa0ab, 0.9);
-    g.lineStyle(3, 0xcfd4de, 1);
-    g.beginPath();
-    g.moveTo(w / 2, 0);
-    g.lineTo(w, h * 0.3);
-    g.lineTo(w * 0.75, h);
-    g.lineTo(w * 0.25, h);
-    g.lineTo(0, h * 0.3);
-    g.closePath();
-    g.fillPath();
-    g.strokePath();
-    g.generateTexture(key, w, h);
     g.destroy();
   }
 
@@ -608,6 +607,7 @@ export default class GameScene extends Phaser.Scene {
       this.attachBulletTrail(bullet);
       this.playShotSound(0.45);
       this.ammo -= 1;
+      this.ammoBlue = this.ammo;
       this.updateAmmoText();
       if (this.ammo <= 0) {
         this.beginReload();
@@ -718,12 +718,14 @@ export default class GameScene extends Phaser.Scene {
     this.addExplosion(bullet.x, bullet.y, 16);
     const weapon = bullet.getData('weapon');
     const now = this.time.now;
+    let damage = 1;
     if (weapon === 'red') {
       const lastHit = enemy.getData('lastRedHitAt') ?? 0;
       if (now - lastHit < 1000) return; // max 1 hp / s
       enemy.setData('lastRedHitAt', now);
     }
-    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
+    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - damage);
+    this.showDamageNumber(enemy.x, enemy.y - enemy.displayHeight * 0.3, damage);
     if (enemy.hp <= 0) {
       this.markEnemyRemoved(enemy);
       enemy.disableBody(true, true);
@@ -750,7 +752,16 @@ export default class GameScene extends Phaser.Scene {
     enemy.setData('collisionCooldownUntil', now + 450);
 
     const typeKey = enemy.getData('typeKey') || enemy.texture?.key;
+    if (typeKey === 'enemyShip2') {
+      this.damagePlayer(this.playerHp); // instant kill
+      enemy.hp = 0;
+    }
     const playerDamage = typeKey === 'enemyShip3' ? 2 : 1;
+    if (typeKey === 'enemyShip2') {
+      const fatal = enemy.hp ?? this.enemyMaxHp;
+      enemy.hp = 0;
+      this.showDamageNumber(enemy.x, enemy.y - enemy.displayHeight * 0.3, fatal);
+    }
     const shield = this.playerShield;
     if (shield?.hp > 0 && shield.graphics) {
       shield.takeDamage(playerDamage);
@@ -762,7 +773,9 @@ export default class GameScene extends Phaser.Scene {
       this.damagePlayer(playerDamage);
     }
 
-    const remainingHp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
+    const remainingHp = typeKey === 'enemyShip2'
+      ? 0
+      : Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 1);
     enemy.hp = remainingHp;
     if (remainingHp <= 0) {
       this.markEnemyRemoved(enemy);
@@ -824,7 +837,10 @@ export default class GameScene extends Phaser.Scene {
       }
     });
     this.gearPickups?.children?.each((pickup) => {
-      if (pickup.active && pickup.y > height + 120) pickup.disableBody(true, true);
+      if (pickup.active && pickup.y > height + 120) {
+        this.removePickupHitbox(pickup);
+        pickup.disableBody(true, true);
+      }
     });
     this.shieldPickups?.children?.each((pickup) => {
       if (pickup.active && pickup.y > height + 120) pickup.disableBody(true, true);
@@ -836,6 +852,26 @@ export default class GameScene extends Phaser.Scene {
         return false;
       }
       return true;
+    });
+  }
+
+  removePickupHitbox(pickup) {
+    const viz = pickup?.getData?.('hitboxViz');
+    if (viz?.destroy) viz.destroy();
+    pickup?.setData?.('hitboxViz', null);
+  }
+
+  syncPickupHitboxes() {
+    if (!this.gearPickups) return;
+    this.gearPickups.children.each((pickup) => {
+      const viz = pickup?.getData?.('hitboxViz');
+      if (!viz) return;
+      if (!pickup.active) {
+        viz.destroy();
+        pickup.setData('hitboxViz', null);
+        return;
+      }
+      viz.setPosition(pickup.x, pickup.y);
     });
   }
 
@@ -1004,17 +1040,19 @@ export default class GameScene extends Phaser.Scene {
     this.updateHealthBar();
     if (this.playerHp <= 0) {
       this.player.disableBody(true, true);
-      this.playExplodeSound(0.9);
+      this.playPlayerDeathSound(0.9);
       this.endGame('defeat');
     }
   }
 
   updateAmmoText() {
     if (!this.ammoText) return;
-    if (this.currentWeapon === 'red') {
-      const isReloading = this.reloading && this.reloadEndTime;
-      if (isReloading) {
-        const remaining = Math.max(0, this.reloadEndTime - this.time.now);
+    const isRed = this.currentWeapon === 'red';
+    const isReloading = isRed ? this.reloadingRed : this.reloadingBlue;
+    const reloadEnd = isRed ? this.reloadEndTimeRed : this.reloadEndTimeBlue;
+    if (isRed) {
+      if (isReloading && reloadEnd) {
+        const remaining = Math.max(0, reloadEnd - this.time.now);
         const seconds = (remaining / 1000).toFixed(1);
         const color = '#ff4d4d';
         this.ammoText.setColor(color);
@@ -1037,7 +1075,7 @@ export default class GameScene extends Phaser.Scene {
         this.updateTextBox(this.ammoText, this.ammoBox, 10, color);
       }
     } else {
-      const color = this.reloading || this.ammo <= 0 ? '#ff4d4d' : '#00ff88';
+      const color = isReloading || this.ammo <= 0 ? '#ff4d4d' : '#00ff88';
       this.ammoText.setColor(color);
       this.ammoText.setStroke(color, 2);
       this.ammoText.setText(`ammo ${this.ammo}/${this.maxAmmo}`);
@@ -1046,22 +1084,45 @@ export default class GameScene extends Phaser.Scene {
   }
 
   beginReload() {
-    if (this.reloading) return;
-    this.reloading = true;
-    const reloadMs = this.currentWeapon === 'red' ? this.redReloadDuration : this.reloadTime;
-    this.reloadEndTime = this.time.now + reloadMs;
-    if (this.currentWeapon === 'red') this.redFiringUntil = 0;
+    const isRed = this.currentWeapon === 'red';
+    if (isRed ? this.reloadingRed : this.reloadingBlue) return;
+    const reloadMs = isRed ? this.redReloadDuration : this.reloadTime;
+    const endTime = this.time.now + reloadMs;
+    if (isRed) {
+      this.reloadingRed = true;
+      this.reloadEndTimeRed = endTime;
+      this.redFiringUntil = 0;
+    } else {
+      this.reloadingBlue = true;
+      this.reloadEndTimeBlue = endTime;
+    }
+    this.reloading = isRed ? this.reloadingRed : this.reloadingBlue;
+    this.reloadEndTime = isRed ? this.reloadEndTimeRed : this.reloadEndTimeBlue;
     this.updateAmmoText();
     this.time.delayedCall(reloadMs, () => {
-      this.maxAmmo = this.currentWeapon === 'red' ? this.maxAmmoRed : this.maxAmmoBlue;
-      this.ammo = this.maxAmmo;
-      this.reloading = false;
-      this.reloadEndTime = null;
+      if (isRed) {
+        this.ammoRed = this.maxAmmoRed;
+        this.reloadingRed = false;
+        this.reloadEndTimeRed = null;
+      } else {
+        this.ammoBlue = this.maxAmmoBlue;
+        this.reloadingBlue = false;
+        this.reloadEndTimeBlue = null;
+      }
+      if (this.currentWeapon === 'red') {
+        this.ammo = this.ammoRed;
+        this.reloading = this.reloadingRed;
+        this.reloadEndTime = this.reloadEndTimeRed;
+      } else {
+        this.ammo = this.ammoBlue;
+        this.reloading = this.reloadingBlue;
+        this.reloadEndTime = this.reloadEndTimeBlue;
+      }
       this.reloadText.setVisible(false);
       this.updateAmmoText();
-      if (this.currentWeapon === 'red') this.playReload2Sound(0.7);
+      if (isRed) this.playReload2Sound(0.7);
       else this.playReloadSound(0.75);
-      this.showAmmoLoadedFlash();
+      if (this.currentWeapon === (isRed ? 'red' : 'blue')) this.showAmmoLoadedFlash();
       if (this.beamSprite) {
         this.beamSprite.setVisible(false);
       }
@@ -1070,12 +1131,15 @@ export default class GameScene extends Phaser.Scene {
 
   updateReloadCountdown(time) {
     if (!this.reloadText) return;
-    if (!this.reloading || !this.reloadEndTime) {
+    const isRed = this.currentWeapon === 'red';
+    const isReloading = isRed ? this.reloadingRed : this.reloadingBlue;
+    const reloadEnd = isRed ? this.reloadEndTimeRed : this.reloadEndTimeBlue;
+    if (!isReloading || !reloadEnd) {
       this.reloadText.setVisible(false);
       this.reloadBox.setVisible(false);
       return;
     }
-    const remaining = Math.max(0, this.reloadEndTime - time);
+    const remaining = Math.max(0, reloadEnd - time);
     const seconds = (remaining / 1000).toFixed(1);
     this.reloadText.setVisible(true);
     this.reloadBox.setVisible(true);
@@ -1090,8 +1154,11 @@ export default class GameScene extends Phaser.Scene {
       this.gameMusic?.stop();
       return;
     }
-    if (!this.gameMusic) {
-      this.gameMusic = this.sound.add('gameMusic', { loop: true, volume: this.musicVolume });
+    const desiredKey = this.gameSettings.musicTrack === 'chill' ? 'gameMusicAlt' : 'gameMusic';
+    if (!this.gameMusic || this.gameMusicKey !== desiredKey) {
+      this.gameMusic?.stop();
+      this.gameMusic = this.sound.add(desiredKey, { loop: true, volume: this.musicVolume });
+      this.gameMusicKey = desiredKey;
     }
     this.gameMusic.setVolume(this.musicVolume);
     if (!this.gameMusic.isPlaying) this.gameMusic.play();
@@ -1112,6 +1179,11 @@ export default class GameScene extends Phaser.Scene {
     this.sound?.play('explode', { volume });
   }
 
+  playPlayerDeathSound(volume = 0.9) {
+    if (!this.gameSettings?.sfxEnabled) return;
+    this.sound?.play('playerDeath', { volume });
+  }
+
   playReloadSound(volume = 0.7) {
     if (!this.gameSettings?.sfxEnabled) return;
     this.sound?.play('reload', { volume });
@@ -1125,19 +1197,19 @@ export default class GameScene extends Phaser.Scene {
   createWeaponIcons() {
     const { width } = this.scale;
     const { height } = this.scale;
-    const size = 52;
-    const gap = 12;
+    const size = 65; // 25% larger than original 52
+    const gap = 10;
     const y = 16 + 36 + 16; // HP sáv alatt
-    this.weaponIconBlue = this.add.rectangle(0, y, size, size, 0x4da0ff, 0.4)
-      .setStrokeStyle(2, 0x4da0ff, 0.9)
+    this.weaponIconBlue = this.add.image(0, y, 'weaponIconBlue')
       .setOrigin(0, 0)
       .setDepth(9)
-      .setScrollFactor(0);
-    this.weaponIconRed = this.add.rectangle(0, y, size, size, 0xff5a5a, 0.4)
-      .setStrokeStyle(2, 0xff5a5a, 0.9)
+      .setScrollFactor(0)
+      .setDisplaySize(size, size);
+    this.weaponIconRed = this.add.image(0, y, 'weaponIconRed')
       .setOrigin(0, 0)
       .setDepth(9)
-      .setScrollFactor(0);
+      .setScrollFactor(0)
+      .setDisplaySize(size, size);
     this.weaponIconBlue.setX(width - (size * 2 + gap * 2));
     this.weaponIconRed.setX(width - (size + gap));
     this.updateWeaponIconState();
@@ -1146,8 +1218,8 @@ export default class GameScene extends Phaser.Scene {
   positionWeaponIcons() {
     if (!this.weaponIconBlue || !this.weaponIconRed) return;
     const { width } = this.scale;
-    const size = this.weaponIconBlue.width;
-    const gap = 12;
+    const size = this.weaponIconBlue.displayWidth;
+    const gap = 10;
     this.weaponIconBlue.setX(width - (size * 2 + gap * 2));
     this.weaponIconRed.setX(width - (size + gap));
     const y = 16 + 36 + 16;
@@ -1158,8 +1230,8 @@ export default class GameScene extends Phaser.Scene {
   updateWeaponIconState() {
     if (!this.weaponIconBlue || !this.weaponIconRed) return;
     const activeBlue = this.currentWeapon === 'blue';
-    this.weaponIconBlue.setAlpha(activeBlue ? 0.95 : 0.25);
-    this.weaponIconRed.setAlpha(activeBlue ? 0.25 : 0.95);
+    this.weaponIconBlue.setAlpha(activeBlue ? 1 : 0.5);
+    this.weaponIconRed.setAlpha(activeBlue ? 0.5 : 1);
   }
 
   fireRedBeam(time) {
@@ -1243,7 +1315,9 @@ export default class GameScene extends Phaser.Scene {
     if (shield && shield.block({ getData: () => 'red', x: enemy.x, y: enemy.y })) {
       return;
     }
-    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - 2);
+    const damage = 3;
+    enemy.hp = Math.max(0, (enemy.hp ?? this.enemyMaxHp) - damage);
+    this.showDamageNumber(enemy.x, enemy.y - enemy.displayHeight * 0.3, damage);
     if (enemy.hp <= 0) {
       this.markEnemyRemoved(enemy);
       enemy.disableBody(true, true);
@@ -1270,11 +1344,20 @@ export default class GameScene extends Phaser.Scene {
 
   switchWeapon(key) {
     if (this.currentWeapon === key) return;
+    if (this.currentWeapon === 'red') {
+      this.ammoRed = this.ammo;
+      this.reloadingRed = this.reloading;
+      this.reloadEndTimeRed = this.reloadEndTime;
+    } else {
+      this.ammoBlue = this.ammo;
+      this.reloadingBlue = this.reloading;
+      this.reloadEndTimeBlue = this.reloadEndTime;
+    }
     this.currentWeapon = key;
     this.maxAmmo = key === 'red' ? this.maxAmmoRed : this.maxAmmoBlue;
-    this.ammo = this.maxAmmo;
-    this.reloading = false;
-    this.reloadEndTime = null;
+    this.ammo = key === 'red' ? this.ammoRed : this.ammoBlue;
+    this.reloading = key === 'red' ? this.reloadingRed : this.reloadingBlue;
+    this.reloadEndTime = key === 'red' ? this.reloadEndTimeRed : this.reloadEndTimeBlue;
     if (this.beamSprite) {
       this.beamSprite.destroy();
       this.beamSprite = null;
@@ -1289,10 +1372,25 @@ export default class GameScene extends Phaser.Scene {
     const gear = this.gearPickups.get(enemy.x, enemy.y, 'gearPickup');
     if (!gear) return;
     gear.enableBody(true, enemy.x, enemy.y, true, true);
+    gear.setDisplaySize(gear.width / 8, gear.height / 8);
     gear.setActive(true).setVisible(true);
     gear.setDepth(8);
     gear.setVelocity(0, this.pickupFallSpeedGear ?? 40);
     gear.setImmovable(true);
+    if (gear.body?.setSize && gear.body?.setOffset) {
+      const w = gear.displayWidth ?? gear.width ?? 0;
+      const h = gear.displayHeight ?? gear.height ?? 0;
+      gear.body.setSize(w, h);
+      gear.body.setOffset(-w / 2, -h / 2);
+    }
+    gear.setInteractive({ useHandCursor: true });
+    gear.removeAllListeners('pointerup');
+    gear.on('pointerup', () => {
+      if (!gear.active) return;
+      this.handleGearPickup(this.player, gear);
+    });
+    this.removePickupHitbox(gear);
+    gear.setData('hitboxViz', null); 
   }
 
   spawnShieldPickup(enemy) {
@@ -1301,14 +1399,24 @@ export default class GameScene extends Phaser.Scene {
     const shield = this.shieldPickups.get(enemy.x, enemy.y, 'shieldPickup');
     if (!shield) return;
     shield.enableBody(true, enemy.x, enemy.y, true, true);
+    shield.setDisplaySize(shield.width / 8, shield.height / 8);
     shield.setActive(true).setVisible(true);
     shield.setDepth(8);
-    shield.setVelocity(0, this.pickupFallSpeedShield ?? 30);
+    shield.setVelocity(0, this.pickupFallSpeedShield ?? 40);
     shield.setImmovable(true);
+    if (shield.body?.setSize && shield.body?.setOffset) {
+      const w = shield.displayWidth ?? shield.width ?? 0;
+      const h = shield.displayHeight ?? shield.height ?? 0;
+      shield.body.setSize(w, h);
+      shield.body.setOffset(-w / 2, -h / 2);
+    }
+    this.removePickupHitbox(shield);
+    shield.setData('hitboxViz', null);
   }
 
   handleGearPickup(_player, gear) {
     if (!gear?.active) return;
+    this.removePickupHitbox(gear);
     gear.disableBody(true, true);
     this.playerHp = Math.min(this.playerMaxHp, this.playerHp + 1);
     this.updateHealthBar();
@@ -1318,6 +1426,19 @@ export default class GameScene extends Phaser.Scene {
     if (!shield?.active) return;
     shield.disableBody(true, true);
     this.attachPlayerShield();
+  }
+
+  checkGearTouch() {
+    if (!this.player?.active || !this.gearPickups) return;
+    this.gearPickups.children.each((pickup) => {
+      if (!pickup?.active) return;
+      const radius = (pickup.displayWidth ?? pickup.width) / 2;
+      const dx = this.player.x - pickup.x;
+      const dy = this.player.y - pickup.y;
+      if ((dx * dx + dy * dy) <= radius * radius) {
+        this.handleGearPickup(this.player, pickup);
+      }
+    });
   }
 
   resolveEnemyOverlap(enemyA, enemyB) {
@@ -1574,10 +1695,12 @@ export default class GameScene extends Phaser.Scene {
     this.spawnTimer?.remove(false);
     this.spawnTimer = null;
     this.gameMusic?.stop();
-    if (this.reloading) {
-      this.reloading = false;
-      this.reloadEndTime = null;
-    }
+    this.reloading = false;
+    this.reloadingBlue = false;
+    this.reloadingRed = false;
+    this.reloadEndTime = null;
+    this.reloadEndTimeBlue = null;
+    this.reloadEndTimeRed = null;
     this.showGameOverOverlay(result);
   }
 
@@ -1588,7 +1711,7 @@ export default class GameScene extends Phaser.Scene {
     const titleColor = isVictory ? '#4cc3ff' : '#ff4d4d';
 
     const overlay = this.add.container(0, 0).setDepth(200);
-    const dimBg = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.55)
+    const dimBg = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, isVictory ? 0.55 : 1)
       .setScrollFactor(0);
     const title = this.add.text(width / 2, height * 0.35, titleText, {
       fontFamily: 'Arial',
@@ -1597,20 +1720,63 @@ export default class GameScene extends Phaser.Scene {
       color: titleColor,
       stroke: titleColor,
       strokeThickness: 4
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setAlpha(isVictory ? 1 : 0);
+    const deathImg = !isVictory
+      ? this.add.image(width / 2, height / 2, 'death')
+        .setAlpha(1)
+        .setScale(1)
+        .setDisplaySize(width * 0.8, height * 0.8)
+      : null;
 
     const resumeBtn = this.createUiButton(width / 2, height * 0.55, 'Resume', () => {
-      this.gameMusic?.stop();
-      this.physics.world.resume();
-      this.scene.restart();
-    });
+      this.goToSceneFromGameOver('Game', true);
+    }).setAlpha(0).setVisible(!isVictory);
     const returnBtn = this.createUiButton(width / 2, height * 0.55 + 90, 'Return to hangar', () => {
-      this.gameMusic?.stop();
-      this.scene.start('Menu');
-    });
+      this.goToSceneFromGameOver('Menu', false);
+    }).setAlpha(0);
 
-    overlay.add([dimBg, title, resumeBtn, returnBtn]);
+    overlay.add([dimBg, ...(deathImg ? [deathImg] : []), title, resumeBtn, returnBtn]);
     this.gameOverOverlay = overlay;
+
+    if (!isVictory) {
+      this.tweens.add({
+        targets: title,
+        alpha: 1,
+        duration: 1200,
+        ease: 'Cubic.easeOut',
+        delay: 2000
+      });
+      const btnDelayBase = 4000;
+      this.time.delayedCall(btnDelayBase, () => {
+        resumeBtn.setVisible(true);
+        this.tweens.add({
+          targets: resumeBtn,
+          alpha: 1,
+          duration: 700,
+          ease: 'Cubic.easeOut'
+        });
+      });
+      this.time.delayedCall(btnDelayBase + 400, () => {
+        this.tweens.add({
+          targets: returnBtn,
+          alpha: 1,
+          duration: 700,
+          ease: 'Cubic.easeOut'
+        });
+      });
+    }
+  }
+
+  goToSceneFromGameOver(targetScene, restart = false) {
+    if (this.gameOverTransitioning) return;
+    this.gameOverTransitioning = true;
+    this.gameMusic?.stop();
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.gameOverTransitioning = false;
+      if (restart) this.scene.restart();
+      else this.scene.start(targetScene);
+    });
+    this.cameras.main.fadeOut(800, 0, 0, 0);
   }
 
   createUiButton(x, y, label, onClick) {
@@ -1642,7 +1808,8 @@ export default class GameScene extends Phaser.Scene {
 
   showAmmoLoadedFlash() {
     if (!this.loadedText) return;
-    this.loadedText.setText('ammo full');
+    const text = this.currentWeapon === 'blue' ? 'ammo loaded' : 'ammo full';
+    this.loadedText.setText(text);
     this.loadedText.setVisible(true);
     this.loadedText.setAlpha(1);
     const flashOnce = (delay) => {
@@ -1702,7 +1869,7 @@ export default class GameScene extends Phaser.Scene {
       } else if (body) {
         this.debugGfx.strokeRect(body.x, body.y, body.width, body.height);
       } else {
-        const radius = (this.player.displayWidth * this.hitboxes.playerRadiusFactor) / 2;
+        const radius = (this.player.displayWidth * this.hitboxes.playerRadiusFactor) / 4;
         this.debugGfx.strokeCircle(this.player.x, this.player.y, radius);
       }
     }
@@ -1743,6 +1910,32 @@ export default class GameScene extends Phaser.Scene {
       if (!bullet.active || !bullet.body) return;
       this.debugGfx.strokeRect(bullet.body.x, bullet.body.y, bullet.body.width, bullet.body.height);
     });
+
+    // Gear pickups
+    if (this.gearPickups) {
+      this.debugGfx.lineStyle(1, 0xffd84d, 0.9);
+      this.gearPickups.children.each((pickup) => {
+        if (!pickup.active || !pickup.body) return;
+        const w = pickup.displayWidth ?? pickup.width;
+        const h = pickup.displayHeight ?? pickup.height;
+        const x = pickup.body?.x ?? (pickup.x - w / 2);
+        const y = pickup.body?.y ?? (pickup.y - h / 2);
+        this.debugGfx.strokeRect(x, y, w, h);
+      });
+    }
+
+    // Shield pickups
+    if (this.shieldPickups) {
+      this.debugGfx.lineStyle(1, 0x7cf4ff, 0.9);
+      this.shieldPickups.children.each((pickup) => {
+        if (!pickup.active || !pickup.body) return;
+        const w = pickup.displayWidth ?? pickup.width;
+        const h = pickup.displayHeight ?? pickup.height;
+        const x = pickup.body?.x ?? (pickup.x - w / 2);
+        const y = pickup.body?.y ?? (pickup.y - h / 2);
+        this.debugGfx.strokeRect(x, y, w, h);
+      });
+    }
 
     // Player HP text
     if (this.player?.body) {
@@ -1803,4 +1996,18 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(51);
     this.time.delayedCall(16, () => text.destroy()); // csak egy frame-re jelenjen meg
   }
+
+  showDamageNumber(x, y, amount) {
+    const txt = this.add.text(x, y, `-${amount}`, {
+      fontFamily: 'Arial',
+      fontSize: 18,
+      color: '#ffd84d',
+      stroke: '#000000',
+      strokeThickness: 2
+    }).setOrigin(0.5).setDepth(30);
+    this.time.delayedCall(1000, () => txt.destroy());
+  }
 }
+
+
+

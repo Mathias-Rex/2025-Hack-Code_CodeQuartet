@@ -3,7 +3,6 @@ import PreloadScene from './scenes/PreloadScene.js';
 import IntroScene from './scenes/IntroScene.js';
 import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
-import TycoonScene from './scenes/TycoonScene.js';
 
 const getScaleConfig = () => ({
   type: Phaser.AUTO,
@@ -19,7 +18,7 @@ const getScaleConfig = () => ({
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH
   },
-  scene: [BootScene, PreloadScene, IntroScene, MenuScene, GameScene, TycoonScene]
+  scene: [BootScene, PreloadScene, IntroScene, MenuScene, GameScene]
 });
 
 window.addEventListener('load', () => {
